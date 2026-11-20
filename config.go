@@ -83,8 +83,8 @@ func (c *Config) Init() error {
 	return nil
 }
 
-func (c *Config) GuestMounts(workspace string) ([]GuestMount, error) {
-	mounts := make([]GuestMount, len(c.Mounts)+1)
+func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]GuestMount, error) {
+	mounts := make([]GuestMount, 1, len(c.Mounts)+len(additional)+1)
 
 	mounts[0] = GuestMount{
 		Tag:       "workspace",
@@ -92,18 +92,23 @@ func (c *Config) GuestMounts(workspace string) ([]GuestMount, error) {
 		HostPath:  workspace,
 	}
 
-	for index := range c.Mounts {
-		mount := &c.Mounts[index]
+	groups := [2][]MountConfig{c.Mounts, additional}
 
-		if !validMountName(mount.Name) {
-			return nil, fmt.Errorf("mounts[%d].name must contain only ASCII letters, digits, dots, underscores or hyphens, and cannot be empty, '.' or '..'", index)
-		}
+	for _, group := range groups {
+		for index := range group {
+			mount := &group[index]
+			number := len(mounts) - 1
 
-		mounts[index+1] = GuestMount{
-			Tag:       "project" + strconv.Itoa(index),
-			GuestPath: "/projects/" + mount.Name,
-			HostPath:  mount.Host,
-			Readonly:  mount.Readonly,
+			if !validMountName(mount.Name) {
+				return nil, fmt.Errorf("mounts[%d].name must contain only ASCII letters, digits, dots, underscores or hyphens, and cannot be empty, '.' or '..'", number)
+			}
+
+			mounts = append(mounts, GuestMount{
+				Tag:       "project" + strconv.Itoa(number),
+				GuestPath: "/projects/" + mount.Name,
+				HostPath:  mount.Host,
+				Readonly:  mount.Readonly,
+			})
 		}
 	}
 

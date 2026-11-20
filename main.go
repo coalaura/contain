@@ -25,11 +25,12 @@ func main() {
 	defer stop()
 
 	cmd := &cli.Command{
-		Name:            "contain",
-		Usage:           "Run tools and agents in an isolated Linux workspace",
-		UsageText:       "contain [options]",
-		Version:         version,
-		HideHelpCommand: true,
+		Name:                      "contain",
+		Usage:                     "Run tools and agents in an isolated Linux workspace",
+		UsageText:                 "contain [options]",
+		Version:                   version,
+		HideHelpCommand:           true,
+		DisableSliceFlagSeparator: true,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "shell",
@@ -39,6 +40,10 @@ func main() {
 				Name:      "run",
 				Usage:     "Run `command` instead of the configured command",
 				Validator: validateShellCommand,
+			},
+			&cli.StringSliceFlag{
+				Name:  "mount",
+				Usage: "Add a session mount `HOST[:NAME][:ro|rw]` (repeatable; name defaults to the directory basename)",
 			},
 		},
 		Action: run,
@@ -65,6 +70,16 @@ func run(ctx context.Context, command *cli.Command) error {
 
 	var err error
 
+	mountValues := command.StringSlice("mount")
+	additionalMounts := make([]MountConfig, len(mountValues))
+
+	for index, value := range mountValues {
+		additionalMounts[index], err = parseMount(value)
+		if err != nil {
+			return fmt.Errorf("--mount %q: %w", value, err)
+		}
+	}
+
 	log.Stepln("Resolving paths...")
 
 	paths, err = ResolvePaths()
@@ -79,7 +94,7 @@ func run(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	mounts, err := config.GuestMounts(paths.WorkingDirectory)
+	mounts, err := config.GuestMounts(paths.WorkingDirectory, additionalMounts...)
 	if err != nil {
 		return err
 	}
