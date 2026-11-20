@@ -12,6 +12,7 @@ type GuestMount struct {
 	Tag       string
 	GuestPath string
 	HostPath  string
+	Readonly  bool
 }
 
 func ValidateGuestMounts(mounts []GuestMount) error {

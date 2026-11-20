@@ -348,15 +348,23 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return fmt.Errorf("guest login must have root privileges: %w", err)
 	}
 
-	for _, m := range mounts {
-		err = con.runShell(ctx, "mkdir -p "+shellQuote(m.GuestPath))
+	for index := range mounts {
+		mount := &mounts[index]
+
+		err = con.runShell(ctx, "mkdir -p "+shellQuote(mount.GuestPath))
 		if err != nil {
-			return fmt.Errorf("create guest mount point %q: %w", m.GuestPath, err)
+			return fmt.Errorf("create guest mount point %q: %w", mount.GuestPath, err)
 		}
 
-		err = con.runShell(ctx, "mount -t virtiofs "+shellQuote(m.Tag)+" "+shellQuote(m.GuestPath))
+		options := ""
+
+		if mount.Readonly {
+			options = " -o ro"
+		}
+
+		err = con.runShell(ctx, "mount -t virtiofs"+options+" "+shellQuote(mount.Tag)+" "+shellQuote(mount.GuestPath))
 		if err != nil {
-			return fmt.Errorf("mount virtio-fs export %q at %q: %w", m.Tag, m.GuestPath, err)
+			return fmt.Errorf("mount virtio-fs export %q at %q: %w", mount.Tag, mount.GuestPath, err)
 		}
 	}
 

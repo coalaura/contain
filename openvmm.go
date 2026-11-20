@@ -178,8 +178,13 @@ func openVMMArgs(address string, mounts []GuestMount) ([]string, error) {
 	for index := range mounts {
 		mount := &mounts[index]
 		port := "fs" + strconv.Itoa(index)
+		options := ""
 
-		args = append(args, "--pcie-root-port", "rc0:"+port, "--virtio-fs", "pcie_port="+port+":"+mount.Tag+","+mount.HostPath)
+		if mount.Readonly {
+			options = ",ro"
+		}
+
+		args = append(args, "--pcie-root-port", "rc0:"+port, "--virtio-fs", "pcie_port="+port+":"+mount.Tag+","+mount.HostPath+options)
 	}
 
 	return args, nil
