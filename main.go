@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/coalaura/plain/minimal"
 )
@@ -16,18 +20,19 @@ var (
 func main() {
 	var err error
 
-	log.Infoln("Resolving paths...")
-
 	paths, err = ResolvePaths()
 	log.MustFail(err)
-
-	log.Infoln("Loading config...")
 
 	config, err = LoadConfig()
 	log.MustFail(err)
 
-	log.Infoln("Starting VM...")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	err = RunOpenVMM(context.Background())
+	err = RunOpenVMM(ctx)
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+
 	log.MustFail(err)
 }

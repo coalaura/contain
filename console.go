@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,8 +24,14 @@ const (
 )
 
 type console struct {
-	conn   net.Conn
+	conn   consoleConn
 	reader *bufio.Reader
+}
+
+type consoleConn interface {
+	io.ReadWriteCloser
+	SetReadDeadline(time.Time) error
+	SetWriteDeadline(time.Time) error
 }
 
 type consoleSignal uint8
@@ -74,12 +79,18 @@ func (c *console) readUntil(ctx context.Context, timeout time.Duration, match fu
 		return signalNone, nil, err
 	}
 
+	canceled := make(chan struct{})
+
 	stop := context.AfterFunc(ctx, func() {
 		c.conn.SetReadDeadline(time.Now())
+
+		close(canceled)
 	})
 
 	defer func() {
-		stop()
+		if !stop() {
+			<-canceled
+		}
 
 		c.conn.SetReadDeadline(time.Time{})
 	}()
@@ -123,12 +134,18 @@ func (c *console) send(ctx context.Context, text string) error {
 		return err
 	}
 
+	canceled := make(chan struct{})
+
 	stop := context.AfterFunc(ctx, func() {
 		c.conn.SetWriteDeadline(time.Now())
+
+		close(canceled)
 	})
 
 	defer func() {
-		stop()
+		if !stop() {
+			<-canceled
+		}
 
 		c.conn.SetWriteDeadline(time.Time{})
 	}()
@@ -180,12 +197,12 @@ func (c *console) waitForStatus(ctx context.Context, timeout time.Duration, mark
 
 		after := tail[idx+len(marker):]
 
-		nl := bytes.IndexByte(after, '\n')
-		if nl < 0 {
+		line, _, found := bytes.Cut(after, []byte{'\n'})
+		if !found {
 			return false, signalNone
 		}
 
-		n, parseErr := strconv.Atoi(strings.TrimSpace(string(after[:nl])))
+		n, parseErr := strconv.Atoi(strings.TrimSpace(string(line)))
 		if parseErr != nil {
 			return false, signalNone
 		}
@@ -198,18 +215,20 @@ func (c *console) waitForStatus(ctx context.Context, timeout time.Duration, mark
 	return status, tail, err
 }
 
-func ConnectConsole(ctx context.Context, address string) (*console, error) {
+func ConnectConsole(ctx context.Context, address string, output io.Writer) (*console, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-
-	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
 
 	var lastErr error
 
 	for {
-		conn, err := dialer.DialContext(ctx, "tcp", address)
+		conn, err := dialConsole(ctx, address)
 		if err == nil {
-			return &console{conn: conn, reader: bufio.NewReader(conn)}, nil
+			// Log before buffering so startup and read-ahead bytes are recorded exactly once.
+			return &console{
+				conn:   conn,
+				reader: bufio.NewReader(io.TeeReader(conn, output)),
+			}, nil
 		}
 
 		lastErr = err

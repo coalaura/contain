@@ -40,7 +40,8 @@ func validateGuestMounts(mounts []GuestMount) error {
 			return fmt.Errorf("duplicate guest mount tag %q or path %q", m.Tag, m.GuestPath)
 		}
 
-		seenTags[m.Tag], seenPaths[m.GuestPath] = true, true
+		seenTags[m.Tag] = true
+		seenPaths[m.GuestPath] = true
 
 		if m.GuestPath == "/workspace" {
 			workspace = true

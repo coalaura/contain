@@ -2,74 +2,101 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
-
-	"golang.org/x/term"
+	"strings"
+	"time"
 )
 
+const shutdownGrace = 2 * time.Second
+
 func RunOpenVMM(ctx context.Context) error {
-	cmd := exec.CommandContext(
-		ctx,
-		paths.OpenVMM,
-		"--hv",
-		"--processors", strconv.FormatInt(int64(config.Machine.Processors), 10),
-		"--memory", fmt.Sprintf("%dG", config.Machine.Memory),
-		"--kernel", config.Source.kernel, // TODO: escape
-		"--initrd", config.Source.initrd, // TODO: escape
-		"--virtio-blk", fmt.Sprintf("file:%s,pcie_port=disk", config.Source.disk), // TODO: escape
-		"--cmdline", "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4 contain.mounts=1",
-		"--pcie-root-complex", "rc0",
-		"--pcie-root-port", "rc0:disk",
-		"--pcie-root-port", "rc0:console",
-		"--com1", "none",
-		"--virtio-console", "listen=tcp:127.0.0.1:19385",
-		"--virtio-console-pcie-port", "console",
-		"--pcie-root-port", "rc0:net",
-		"--virtio-net", "pcie_port=net:consomme",
-		"--pcie-root-port", "rc0:fs0",
-		"--virtio-fs", fmt.Sprintf("pcie_port=fs0:workspace,%s", paths.WorkingDirectory), // TODO: escape
-		"--pcie-root-port", "rc0:fs1",
-		// "--virtio-fs", "pcie_port=fs1:extra0,/home/user/datasets", // TODO: mount additional r/rw paths & escape
-		"--guest-shutdown-action", "exit",
-	)
+	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
+	if err != nil {
+		return fmt.Errorf("create session log: %w", err)
+	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	err = runOpenVMM(ctx, output)
+	if err != nil {
+		fmt.Fprintln(output, err)
+	}
 
-	stdinRd, stdinWr, err := os.Pipe()
+	closeErr := output.Close()
+
+	err = errors.Join(err, closeErr)
+	if err != nil {
+		return fmt.Errorf("%w (log: %s)", err, output.Name())
+	}
+
+	return nil
+}
+
+func runOpenVMM(ctx context.Context, output *os.File) error {
+	address, cleanup, err := consoleAddress()
+	if err != nil {
+		return err
+	}
+
+	defer cleanup()
+
+	args, err := openVMMArgs(address)
+	if err != nil {
+		return err
+	}
+
+	processCtx, stopProcess := context.WithCancel(ctx)
+	defer stopProcess()
+
+	consoleCtx, stopConsole := context.WithCancel(ctx)
+	defer stopConsole()
+
+	cmd := exec.CommandContext(processCtx, paths.OpenVMM, args...)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	cmd.WaitDelay = shutdownGrace
+
+	stdinReader, stdinWriter, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("create OpenVMM stdin pipe: %w", err)
 	}
 
-	defer stdinWr.Close()
-	defer stdinRd.Close()
+	defer stdinWriter.Close()
+	defer stdinReader.Close()
 
-	cmd.Stdin = stdinRd
+	cmd.Stdin = stdinReader
 
 	err = cmd.Start()
 	if err != nil {
-		return err
+		return fmt.Errorf("start OpenVMM: %w", err)
 	}
 
-	stdinRd.Close()
+	stdinReader.Close()
 
-	log.Infoln("Waiting for OpenVMM console...")
+	exited := make(chan struct{})
 
-	con, err := ConnectConsole(ctx, "127.0.0.1:19385")
+	var processErr error
+
+	go func() {
+		processErr = cmd.Wait()
+
+		close(exited)
+		stopConsole()
+	}()
+
+	defer func() {
+		stopProcess()
+		<-exited
+	}()
+
+	con, err := ConnectConsole(consoleCtx, address, output)
 	if err != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
-
-		return err
+		return startupError(ctx, exited, &processErr, err)
 	}
 
 	defer con.Close()
-
-	log.Infoln("Connected to OpenVMM console")
 
 	mounts := []GuestMount{
 		{
@@ -78,40 +105,99 @@ func RunOpenVMM(ctx context.Context) error {
 		},
 	}
 
-	err = initializeGuest(ctx, con, config.Machine.Login, mounts)
+	err = initializeGuest(consoleCtx, con, config.Machine.Login, mounts)
 	if err != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
-
-		return err
+		return startupError(ctx, exited, &processErr, err)
 	}
 
-	err = relayTerminal(con)
-	if err != nil {
-		cmd.Wait()
+	relayErr := relayTerminal(ctx, con, exited)
+	con.Close()
 
-		return err
+	// A console can disconnect without OpenVMM exiting. Give poweroff time to
+	// finish, then let deferred cancellation terminate and reap the process.
+	timer := time.NewTimer(shutdownGrace)
+	defer timer.Stop()
+
+	select {
+	case <-exited:
+		return errors.Join(relayErr, processErr)
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return relayErr
 	}
-
-	return cmd.Wait()
 }
 
-func relayTerminal(con *console) error {
-	fd := int(os.Stdin.Fd())
-
-	if term.IsTerminal(fd) {
-		state, err := term.MakeRaw(fd)
-		if err != nil {
-			return err
-		}
-
-		defer term.Restore(fd, state)
+func openVMMArgs(address string) ([]string, error) {
+	// exec.Command quotes OS arguments. OpenVMM's compound values have no
+	// escaping syntax, so reject delimiters that would change their meaning.
+	if strings.ContainsAny(config.Source.disk, ",;\x00") || !balancedBrackets(config.Source.disk) {
+		return nil, fmt.Errorf("OpenVMM cannot represent disk path %q: commas, semicolons, NUL and unbalanced brackets are unsupported", config.Source.disk)
 	}
 
-	go func() {
-		io.Copy(con.Writer(), os.Stdin)
-	}()
+	if strings.ContainsAny(paths.WorkingDirectory, ",\x00") {
+		return nil, fmt.Errorf("OpenVMM cannot represent workspace path %q: commas and NUL are unsupported", paths.WorkingDirectory)
+	}
 
-	_, err := io.Copy(os.Stdout, con.Reader())
-	return err
+	if strings.ContainsAny(address, ",=\x00") {
+		return nil, fmt.Errorf("OpenVMM cannot represent console path %q: commas, equals signs and NUL are unsupported", address)
+	}
+
+	return []string{
+		"--hv",
+		"--processors", strconv.Itoa(config.Machine.Processors),
+		"--memory", fmt.Sprintf("%dG", config.Machine.Memory),
+		"--kernel", config.Source.kernel,
+		"--initrd", config.Source.initrd,
+		"--virtio-blk", "file:" + config.Source.disk + ",pcie_port=disk",
+		"--cmdline", "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4 contain.mounts=1",
+		"--pcie-root-complex", "rc0",
+		"--pcie-root-port", "rc0:disk",
+		"--pcie-root-port", "rc0:console",
+		"--com1", "none",
+		"--virtio-console", "listen=" + address,
+		"--virtio-console-pcie-port", "console",
+		"--pcie-root-port", "rc0:net",
+		"--virtio-net", "pcie_port=net:consomme",
+		"--pcie-root-port", "rc0:fs0",
+		"--virtio-fs", "pcie_port=fs0:workspace," + paths.WorkingDirectory,
+		"--pcie-root-port", "rc0:fs1",
+		// "--virtio-fs", "pcie_port=fs1:extra0,/home/user/datasets", // TODO: mount additional r/rw paths & escape
+		"--guest-shutdown-action", "exit",
+	}, nil
+}
+
+func startupError(ctx context.Context, exited <-chan struct{}, processErr *error, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	select {
+	case <-exited:
+		if *processErr != nil {
+			return fmt.Errorf("OpenVMM exited before guest initialization: %w", *processErr)
+		}
+
+		return errors.New("OpenVMM exited before guest initialization")
+	default:
+		return err
+	}
+}
+
+func balancedBrackets(value string) bool {
+	depth := 0
+
+	for _, char := range value {
+		switch char {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+
+	return depth == 0
 }
