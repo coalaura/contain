@@ -58,10 +58,6 @@ func ResolvePaths() (*Paths, error) {
 	}, nil
 }
 
-func FindOpenVMM() (string, error) {
-	return exec.LookPath("openvmm")
-}
-
 func FilesExist(files ...string) error {
 	for _, file := range files {
 		stat, err := os.Stat(file)

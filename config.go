@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
 	"github.com/goccy/go-yaml"
 )
@@ -20,6 +21,13 @@ type MachineConfig struct {
 	Processors int         `yaml:"processors"`
 	Memory     int         `yaml:"memory"`
 	Login      ConfigLogin `yaml:"login"`
+	Command    string      `yaml:"command"`
+}
+
+type MountConfig struct {
+	Name     string `yaml:"name"`
+	Host     string `yaml:"host"`
+	Readonly bool   `yaml:"readonly"`
 }
 
 type SourceConfig struct {
@@ -33,6 +41,7 @@ type SourceConfig struct {
 type Config struct {
 	Machine MachineConfig `yaml:"machine"`
 	Source  SourceConfig  `yaml:"source"`
+	Mounts  []MountConfig `yaml:"mounts"`
 }
 
 var MaxProcs = runtime.GOMAXPROCS(0)
@@ -52,6 +61,12 @@ func (c *Config) Init() error {
 		return errors.New("machine.memory has to be 1G or more")
 	}
 
+	for _, character := range c.Machine.Command {
+		if character < ' ' || character == '\x7f' {
+			return errors.New("machine.command must be a single-line shell command without control characters")
+		}
+	}
+
 	// validate alpine build files
 	disk := filepath.Join(c.Source.Alpine, "disk.raw")
 	initrd := filepath.Join(c.Source.Alpine, "initramfs-virt")
@@ -69,6 +84,38 @@ func (c *Config) Init() error {
 	return nil
 }
 
+func (c *Config) GuestMounts(workspace string) ([]GuestMount, error) {
+	mounts := make([]GuestMount, len(c.Mounts)+1)
+
+	mounts[0] = GuestMount{
+		Tag:       "workspace",
+		GuestPath: "/workspace",
+		HostPath:  workspace,
+	}
+
+	for index := range c.Mounts {
+		mount := &c.Mounts[index]
+
+		if !validMountName(mount.Name) {
+			return nil, fmt.Errorf("mounts[%d].name must contain only ASCII letters, digits, dots, underscores or hyphens, and cannot be empty, '.' or '..'", index)
+		}
+
+		mounts[index+1] = GuestMount{
+			Tag:       "project" + strconv.Itoa(index),
+			GuestPath: "/projects/" + mount.Name,
+			HostPath:  mount.Host,
+			Readonly:  mount.Readonly,
+		}
+	}
+
+	err := ValidateGuestMounts(mounts)
+	if err != nil {
+		return nil, err
+	}
+
+	return mounts, nil
+}
+
 func (c *Config) Store() error {
 	var (
 		buffer   bytes.Buffer
@@ -77,8 +124,10 @@ func (c *Config) Store() error {
 
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
 			"$.machine.memory":     {yaml.HeadComment(" amount of memory to assign to the vm (in GiB)")},
+			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command to start in /workspace before terminal handoff")},
 
 			"$.source.alpine": {yaml.HeadComment(" path to the alpine build directory")},
+			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name (under /projects), host, and optional readonly (default false)")},
 		}
 	)
 
@@ -105,6 +154,7 @@ func DefaultConfig() *Config {
 		Source: SourceConfig{
 			Alpine: "/path/to/alpine/build",
 		},
+		Mounts: []MountConfig{},
 	}
 }
 
@@ -148,4 +198,8 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func validMountName(name string) bool {
+	return name != "." && name != ".." && validMountIdentifier(name)
 }

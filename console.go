@@ -154,6 +154,20 @@ func (c *console) send(ctx context.Context, text string) error {
 	return err
 }
 
+func (c *console) startCommand(ctx context.Context, command string) error {
+	if command == "" {
+		return nil
+	}
+
+	// Interactive commands must continue into the relay rather than wait for a status marker.
+	err := c.sendLine(ctx, command)
+	if err != nil {
+		return fmt.Errorf("start guest command: %w", err)
+	}
+
+	return nil
+}
+
 func (c *console) runShell(ctx context.Context, script string) error {
 	var id [16]byte
 

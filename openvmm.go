@@ -110,6 +110,11 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount) error
 		return startupError(ctx, exited, &processErr, err)
 	}
 
+	err = con.startCommand(consoleCtx, config.Machine.Command)
+	if err != nil {
+		return startupError(ctx, exited, &processErr, err)
+	}
+
 	took := time.Since(start).Round(time.Millisecond)
 
 	log.Successf("Guest ready in %s.\n", took)

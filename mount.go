@@ -30,7 +30,7 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 	for index := range mounts {
 		mount := &mounts[index]
 
-		if mount.Tag == "" || strings.Trim(mount.Tag, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") != "" {
+		if !validMountIdentifier(mount.Tag) {
 			return fmt.Errorf("invalid virtio-fs tag %q", mount.Tag)
 		}
 
@@ -68,4 +68,24 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 	}
 
 	return nil
+}
+
+func validMountIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+
+	for index := 0; index < len(name); index++ {
+		character := name[index]
+
+		letter := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
+		digit := character >= '0' && character <= '9'
+		punctuation := character == '_' || character == '.' || character == '-'
+
+		if !letter && !digit && !punctuation {
+			return false
+		}
+	}
+
+	return true
 }
