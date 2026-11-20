@@ -4,22 +4,43 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	_ "embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
 
+//go:embed command_guest.sh
+var guestCommandScript string
+
+// Tabs would trigger completion in the interactive console while transmitting the script.
+var guestCommandPrefix = "sh -c " + shellQuote(strings.ReplaceAll(guestCommandScript, "\t", "")) + " contain "
+
 func (c *console) startCommand(ctx context.Context, command string) error {
 	if command == "" {
 		return nil
 	}
 
-	// Interactive commands must continue into the relay rather than wait for a status marker.
-	err := c.sendLine(ctx, command)
+	token := rand.Text()
+	left := "__CONTAIN_" + token[:16]
+	right := token[16:]
+	marker := left + right + "_READY:"
+
+	// Split the marker so echoed input cannot be mistaken for supervisor output.
+	payload := guestCommandPrefix + shellQuote(command) + " " + shellQuote(left) + " " + shellQuote(right)
+
+	err := c.sendLine(ctx, payload)
 	if err != nil {
 		return fmt.Errorf("start guest command: %w", err)
+	}
+
+	// Consume the echoed supervisor input, but never wait for the interactive command to exit.
+	_, tail, err := c.waitForStatus(ctx, 30*time.Second, marker)
+	if err != nil {
+		return fmt.Errorf("wait for guest command startup: %w (console: %s)", err, consoleExcerpt(tail))
 	}
 
 	return nil
@@ -95,6 +116,16 @@ func (c *console) waitForStatus(ctx context.Context, timeout time.Duration, mark
 	})
 
 	return status, tail, err
+}
+
+func validateShellCommand(command string) error {
+	for _, character := range command {
+		if character < ' ' || character == '\x7f' {
+			return errors.New("must be a single-line shell command without control characters")
+		}
+	}
+
+	return nil
 }
 
 func shellQuote(s string) string {

@@ -61,10 +61,9 @@ func (c *Config) Init() error {
 		return errors.New("machine.memory has to be 1G or more")
 	}
 
-	for _, character := range c.Machine.Command {
-		if character < ' ' || character == '\x7f' {
-			return errors.New("machine.command must be a single-line shell command without control characters")
-		}
+	err := validateShellCommand(c.Machine.Command)
+	if err != nil {
+		return fmt.Errorf("machine.command %w", err)
 	}
 
 	// validate alpine build files
@@ -72,7 +71,7 @@ func (c *Config) Init() error {
 	initrd := filepath.Join(c.Source.Alpine, "initramfs-virt")
 	kernel := filepath.Join(c.Source.Alpine, "vmlinuz-virt")
 
-	err := FilesExist(disk, initrd, kernel)
+	err = FilesExist(disk, initrd, kernel)
 	if err != nil {
 		return err
 	}
@@ -124,10 +123,10 @@ func (c *Config) Store() error {
 
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
 			"$.machine.memory":     {yaml.HeadComment(" amount of memory to assign to the vm (in GiB)")},
-			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command to start in /workspace before terminal handoff")},
+			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
 
 			"$.source.alpine": {yaml.HeadComment(" path to the alpine build directory")},
-			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name (under /projects), host, and optional readonly (default false)")},
+			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name (under /projects), host and optional readonly (default false)")},
 		}
 	)
 

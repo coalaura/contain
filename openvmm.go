@@ -13,7 +13,7 @@ import (
 
 const shutdownGrace = 2 * time.Second
 
-func RunOpenVMM(ctx context.Context, mounts []GuestMount) error {
+func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string) error {
 	log.Stepln("Starting VM...")
 
 	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
@@ -23,7 +23,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount) error {
 
 	log.Subf("Session log: %s\n", output.Name())
 
-	err = runOpenVMM(ctx, output, mounts)
+	err = runOpenVMM(ctx, output, mounts, command)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
@@ -33,7 +33,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount) error {
 	return errors.Join(err, closeErr)
 }
 
-func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount) error {
+func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, command string) error {
 	address, cleanup, err := consoleAddress()
 	if err != nil {
 		return err
@@ -110,7 +110,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount) error
 		return startupError(ctx, exited, &processErr, err)
 	}
 
-	err = con.startCommand(consoleCtx, config.Machine.Command)
+	err = con.startCommand(consoleCtx, command)
 	if err != nil {
 		return startupError(ctx, exited, &processErr, err)
 	}
