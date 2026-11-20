@@ -2,15 +2,11 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -152,92 +148,6 @@ func (c *console) send(ctx context.Context, text string) error {
 
 	_, err = io.WriteString(c.conn, text)
 	return err
-}
-
-func (c *console) startCommand(ctx context.Context, command string) error {
-	if command == "" {
-		return nil
-	}
-
-	// Interactive commands must continue into the relay rather than wait for a status marker.
-	err := c.sendLine(ctx, command)
-	if err != nil {
-		return fmt.Errorf("start guest command: %w", err)
-	}
-
-	return nil
-}
-
-func (c *console) runShell(ctx context.Context, script string) error {
-	var id [16]byte
-
-	_, err := rand.Read(id[:])
-	if err != nil {
-		return err
-	}
-
-	token := hex.EncodeToString(id[:])
-	left := "__CONTAIN_" + token[:16]
-	right := token[16:]
-	beginMarker := left + right + "_BEGIN"
-	marker := left + right + "_DONE:"
-
-	// Split both markers so echoed input cannot be mistaken for command output.
-	prefix := "printf '%s%s_BEGIN\\n' '" + left + "' '" + right + "'; "
-	payload := prefix + script + "; __contain_status=$?; printf '%s%s_DONE:%d\\n' '" + left + "' '" + right + "' \"$__contain_status\"\n"
-
-	err = c.send(ctx, payload)
-	if err != nil {
-		return err
-	}
-
-	status, tail, err := c.waitForStatus(ctx, 30*time.Second, marker)
-
-	_, output, found := bytes.Cut(tail, []byte(beginMarker))
-	if found {
-		tail = output
-	}
-
-	tail, _, _ = bytes.Cut(tail, []byte(marker))
-
-	if err != nil {
-		return fmt.Errorf("guest shell command timed out or failed to respond: %w (console: %s)", err, consoleExcerpt(tail))
-	}
-
-	if status != 0 {
-		return fmt.Errorf("guest shell returned exit status %d (console: %s)", status, consoleExcerpt(tail))
-	}
-
-	return nil
-}
-
-func (c *console) waitForStatus(ctx context.Context, timeout time.Duration, marker string) (int, []byte, error) {
-	status := -1
-
-	_, tail, err := c.readUntil(ctx, timeout, func(tail []byte) (bool, consoleSignal) {
-		idx := bytes.LastIndex(tail, []byte(marker))
-		if idx < 0 {
-			return false, signalNone
-		}
-
-		after := tail[idx+len(marker):]
-
-		line, _, found := bytes.Cut(after, []byte{'\n'})
-		if !found {
-			return false, signalNone
-		}
-
-		n, parseErr := strconv.Atoi(strings.TrimSpace(string(line)))
-		if parseErr != nil {
-			return false, signalNone
-		}
-
-		status = n
-
-		return true, signalShell
-	})
-
-	return status, tail, err
 }
 
 func ConnectConsole(ctx context.Context, address string, output io.Writer) (*console, error) {
@@ -384,15 +294,4 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 	}
 
 	return nil
-}
-
-func consoleExcerpt(tail []byte) string {
-	clean := strings.ReplaceAll(string(ansiCSI.ReplaceAll(tail, nil)), "\r", "")
-	clean = strings.TrimSpace(clean)
-
-	if len(clean) > 700 {
-		clean = clean[len(clean)-700:]
-	}
-
-	return clean
 }
