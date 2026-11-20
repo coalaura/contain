@@ -11,9 +11,15 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+type ConfigLogin struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 type MachineConfig struct {
-	Processors int `yaml:"processors"`
-	Memory     int `yaml:"memory"`
+	Processors int         `yaml:"processors"`
+	Memory     int         `yaml:"memory"`
+	Login      ConfigLogin `yaml:"login"`
 }
 
 type SourceConfig struct {
@@ -91,6 +97,10 @@ func DefaultConfig() *Config {
 		Machine: MachineConfig{
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
+			Login: ConfigLogin{
+				Username: "root",
+				Password: "alpine",
+			},
 		},
 		Source: SourceConfig{
 			Alpine: "/path/to/alpine/build",

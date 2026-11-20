@@ -1,6 +1,10 @@
 package main
 
-import "github.com/coalaura/plain/minimal"
+import (
+	"context"
+
+	"github.com/coalaura/plain/minimal"
+)
 
 var (
 	paths  *Paths
@@ -24,6 +28,6 @@ func main() {
 
 	log.Infoln("Starting VM...")
 
-	err = RunOpenVMM()
+	err = RunOpenVMM(context.Background())
 	log.MustFail(err)
 }
