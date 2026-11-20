@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
+	"text/tabwriter"
 
 	"github.com/coalaura/plain/minimal"
 	"github.com/urfave/cli/v3"
@@ -44,6 +46,11 @@ func main() {
 			&cli.StringSliceFlag{
 				Name:  "mount",
 				Usage: "Add a session mount `HOST[:NAME][:ro|rw]` (repeatable; name defaults to the directory basename)",
+			},
+			&cli.BoolFlag{
+				Name:    "dry-run",
+				Aliases: []string{"dry"},
+				Usage:   "Print the resolved mounts and command without starting the VM",
 			},
 		},
 		Action: run,
@@ -107,6 +114,10 @@ func run(ctx context.Context, command *cli.Command) error {
 		startupCommand = ""
 	}
 
+	if command.Bool("dry-run") {
+		return printDryRun(command.Writer, mounts, startupCommand)
+	}
+
 	err = RunOpenVMM(ctx, mounts, startupCommand)
 	if err != nil {
 		return err
@@ -116,4 +127,39 @@ func run(ctx context.Context, command *cli.Command) error {
 	log.Infoln("Session ended.")
 
 	return nil
+}
+
+func printDryRun(output io.Writer, mounts []GuestMount, command string) error {
+	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+
+	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tHOST")
+	if err != nil {
+		return err
+	}
+
+	for index := range mounts {
+		mount := &mounts[index]
+		access := "read/write"
+
+		if mount.Readonly {
+			access = "read-only"
+		}
+
+		_, err = fmt.Fprintf(writer, "  %s\t%s\t%s\n", mount.GuestPath, access, mount.HostPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = writer.Flush()
+	if err != nil {
+		return err
+	}
+
+	if command == "" {
+		command = "(interactive shell)"
+	}
+
+	_, err = fmt.Fprintf(output, "\nCommand (in /workspace):\n  %s\n", command)
+	return err
 }
