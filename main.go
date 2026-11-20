@@ -14,14 +14,18 @@ var (
 	paths  *Paths
 	config *Config
 
-	log = minimal.New()
+	log = minimal.New(minimal.ToStdErr())
 )
 
 func main() {
 	var err error
 
+	log.Stepln("Resolving paths...")
+
 	paths, err = ResolvePaths()
 	log.MustFail(err)
+
+	log.Stepln("Loading configuration...")
 
 	config, err = LoadConfig()
 	log.MustFail(err)
@@ -31,8 +35,12 @@ func main() {
 
 	err = RunOpenVMM(ctx)
 	if errors.Is(err, context.Canceled) {
+		log.Infoln("Session canceled.")
+
 		return
 	}
 
 	log.MustFail(err)
+
+	log.Infoln("Session ended.")
 }

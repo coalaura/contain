@@ -14,10 +14,14 @@ import (
 const shutdownGrace = 2 * time.Second
 
 func RunOpenVMM(ctx context.Context) error {
+	log.Stepln("Starting VM...")
+
 	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
 	if err != nil {
 		return fmt.Errorf("create session log: %w", err)
 	}
+
+	log.Subf("Session log: %s\n", output.Name())
 
 	err = runOpenVMM(ctx, output)
 	if err != nil {
@@ -91,6 +95,8 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 		<-exited
 	}()
 
+	log.Subln("Connecting to guest console...")
+
 	con, err := ConnectConsole(consoleCtx, address, output)
 	if err != nil {
 		return startupError(ctx, exited, &processErr, err)
@@ -105,10 +111,14 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 		},
 	}
 
+	log.Subln("Initializing guest...")
+
 	err = initializeGuest(consoleCtx, con, config.Machine.Login, mounts)
 	if err != nil {
 		return startupError(ctx, exited, &processErr, err)
 	}
+
+	log.Successln("Guest ready.")
 
 	relayErr := relayTerminal(ctx, con, exited)
 	con.Close()
