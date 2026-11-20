@@ -58,8 +58,10 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 	defer stopConsole()
 
 	cmd := exec.CommandContext(processCtx, paths.OpenVMM, args...)
+
 	cmd.Stdout = output
 	cmd.Stderr = output
+
 	cmd.WaitDelay = shutdownGrace
 
 	stdinReader, stdinWriter, err := os.Pipe()
@@ -71,6 +73,8 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 	defer stdinReader.Close()
 
 	cmd.Stdin = stdinReader
+
+	start := time.Now()
 
 	err = cmd.Start()
 	if err != nil {
@@ -118,7 +122,9 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 		return startupError(ctx, exited, &processErr, err)
 	}
 
-	log.Successln("Guest ready.")
+	took := time.Since(start)
+
+	log.Successf("Guest ready in %s.\n", took)
 
 	relayErr := relayTerminal(ctx, con, exited)
 	con.Close()
