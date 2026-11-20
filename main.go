@@ -45,5 +45,6 @@ func main() {
 
 	log.MustExit(err)
 
+	log.Writeln("")
 	log.Infoln("Session ended.")
 }
