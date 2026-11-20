@@ -21,4 +21,9 @@ func main() {
 
 	config, err = LoadConfig()
 	log.MustFail(err)
+
+	log.Infoln("Starting VM...")
+
+	err = RunOpenVMM()
+	log.MustFail(err)
 }

@@ -1,16 +1,25 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
 type Paths struct {
-	DataDirectory string
-	ConfigFile    string
+	WorkingDirectory string
+	DataDirectory    string
+	ConfigFile       string
+	OpenVMM          string
 }
 
 func ResolvePaths() (*Paths, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -36,8 +45,38 @@ func ResolvePaths() (*Paths, error) {
 		}
 	}
 
+	bin, err := exec.LookPath("openvmm")
+	if err != nil {
+		return nil, err
+	}
+
 	return &Paths{
-		DataDirectory: dataDir,
-		ConfigFile:    filepath.Join(configDir, "contain.yml"),
+		WorkingDirectory: cwd,
+		DataDirectory:    dataDir,
+		ConfigFile:       filepath.Join(configDir, "contain.yml"),
+		OpenVMM:          bin,
 	}, nil
+}
+
+func FindOpenVMM() (string, error) {
+	return exec.LookPath("openvmm")
+}
+
+func FilesExist(files ...string) error {
+	for _, file := range files {
+		stat, err := os.Stat(file)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%q does not exist", file)
+		} else if err != nil {
+			return err
+		}
+
+		if stat.IsDir() {
+			return fmt.Errorf("%q is a directory", file)
+		} else if stat.Size() == 0 {
+			return fmt.Errorf("%q is empty", file)
+		}
+	}
+
+	return nil
 }
