@@ -40,10 +40,24 @@ func RunOpenVMM(ctx context.Context) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	err := cmd.Start()
+	stdinRd, stdinWr, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("create OpenVMM stdin pipe: %w", err)
+	}
+
+	defer stdinWr.Close()
+	defer stdinRd.Close()
+
+	cmd.Stdin = stdinRd
+
+	err = cmd.Start()
 	if err != nil {
 		return err
 	}
+
+	stdinRd.Close()
+
+	log.Infoln("Waiting for OpenVMM console...")
 
 	con, err := ConnectConsole(ctx, "127.0.0.1:19385")
 	if err != nil {
@@ -54,6 +68,8 @@ func RunOpenVMM(ctx context.Context) error {
 	}
 
 	defer con.Close()
+
+	log.Infoln("Connected to OpenVMM console")
 
 	mounts := []GuestMount{
 		{
