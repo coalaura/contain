@@ -253,7 +253,7 @@ func ConnectConsole(ctx context.Context, address string, output io.Writer) (*con
 	}
 }
 
-func initializeGuest(ctx context.Context, con *console, login ConfigLogin, mounts []GuestMount) error {
+func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mounts []GuestMount) error {
 	if login.Username == "" {
 		login.Username = "root"
 	}
@@ -262,7 +262,7 @@ func initializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return errors.New("invalid guest username")
 	}
 
-	err := validateGuestMounts(mounts)
+	err := ValidateGuestMounts(mounts)
 	if err != nil {
 		return err
 	}

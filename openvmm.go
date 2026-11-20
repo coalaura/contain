@@ -13,7 +13,7 @@ import (
 
 const shutdownGrace = 2 * time.Second
 
-func RunOpenVMM(ctx context.Context) error {
+func RunOpenVMM(ctx context.Context, mounts []GuestMount) error {
 	log.Stepln("Starting VM...")
 
 	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
@@ -23,7 +23,7 @@ func RunOpenVMM(ctx context.Context) error {
 
 	log.Subf("Session log: %s\n", output.Name())
 
-	err = runOpenVMM(ctx, output)
+	err = runOpenVMM(ctx, output, mounts)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
@@ -38,7 +38,7 @@ func RunOpenVMM(ctx context.Context) error {
 	return nil
 }
 
-func runOpenVMM(ctx context.Context, output *os.File) error {
+func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount) error {
 	address, cleanup, err := consoleAddress()
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 
 	defer cleanup()
 
-	args, err := openVMMArgs(address)
+	args, err := openVMMArgs(address, mounts)
 	if err != nil {
 		return err
 	}
@@ -108,16 +108,9 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 
 	defer con.Close()
 
-	mounts := []GuestMount{
-		{
-			Tag:       "workspace",
-			GuestPath: "/workspace",
-		},
-	}
-
 	log.Subln("Initializing guest...")
 
-	err = initializeGuest(consoleCtx, con, config.Machine.Login, mounts)
+	err = InitializeGuest(consoleCtx, con, config.Machine.Login, mounts)
 	if err != nil {
 		return startupError(ctx, exited, &processErr, err)
 	}
@@ -144,22 +137,23 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 	}
 }
 
-func openVMMArgs(address string) ([]string, error) {
+func openVMMArgs(address string, mounts []GuestMount) ([]string, error) {
+	err := ValidateGuestMounts(mounts)
+	if err != nil {
+		return nil, err
+	}
+
 	// exec.Command quotes OS arguments. OpenVMM's compound values have no
 	// escaping syntax, so reject delimiters that would change their meaning.
 	if strings.ContainsAny(config.Source.disk, ",;\x00") || !balancedBrackets(config.Source.disk) {
 		return nil, fmt.Errorf("OpenVMM cannot represent disk path %q: commas, semicolons, NUL and unbalanced brackets are unsupported", config.Source.disk)
 	}
 
-	if strings.ContainsAny(paths.WorkingDirectory, ",\x00") {
-		return nil, fmt.Errorf("OpenVMM cannot represent workspace path %q: commas and NUL are unsupported", paths.WorkingDirectory)
-	}
-
 	if strings.ContainsAny(address, ",=\x00") {
 		return nil, fmt.Errorf("OpenVMM cannot represent console path %q: commas, equals signs and NUL are unsupported", address)
 	}
 
-	return []string{
+	baseArgs := []string{
 		"--hv",
 		"--processors", strconv.Itoa(config.Machine.Processors),
 		"--memory", fmt.Sprintf("%dG", config.Machine.Memory),
@@ -175,12 +169,20 @@ func openVMMArgs(address string) ([]string, error) {
 		"--virtio-console-pcie-port", "console",
 		"--pcie-root-port", "rc0:net",
 		"--virtio-net", "pcie_port=net:consomme",
-		"--pcie-root-port", "rc0:fs0",
-		"--virtio-fs", "pcie_port=fs0:workspace," + paths.WorkingDirectory,
-		"--pcie-root-port", "rc0:fs1",
-		// "--virtio-fs", "pcie_port=fs1:extra0,/home/user/datasets", // TODO: mount additional r/rw paths & escape
 		"--guest-shutdown-action", "exit",
-	}, nil
+	}
+
+	args := make([]string, 0, len(baseArgs)+4*len(mounts))
+	args = append(args, baseArgs...)
+
+	for index := range mounts {
+		mount := &mounts[index]
+		port := "fs" + strconv.Itoa(index)
+
+		args = append(args, "--pcie-root-port", "rc0:"+port, "--virtio-fs", "pcie_port="+port+":"+mount.Tag+","+mount.HostPath)
+	}
+
+	return args, nil
 }
 
 func startupError(ctx context.Context, exited <-chan struct{}, processErr *error, err error) error {

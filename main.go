@@ -33,7 +33,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	err = RunOpenVMM(ctx)
+	mounts := []GuestMount{
+		{
+			Tag:       "workspace",
+			GuestPath: "/workspace",
+			HostPath:  paths.WorkingDirectory,
+		},
+
+		// example
+		{
+			Tag:       "example",
+			GuestPath: "/projects/example",
+			HostPath:  "C:\\Users\\Public\\Downloads",
+		},
+	}
+
+	err = RunOpenVMM(ctx, mounts)
 	if errors.Is(err, context.Canceled) {
 		log.Infoln("Session canceled.")
 
