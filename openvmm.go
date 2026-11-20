@@ -122,7 +122,7 @@ func runOpenVMM(ctx context.Context, output *os.File) error {
 		return startupError(ctx, exited, &processErr, err)
 	}
 
-	took := time.Since(start)
+	took := time.Since(start).Round(time.Millisecond)
 
 	log.Successf("Guest ready in %s.\n", took)
 
