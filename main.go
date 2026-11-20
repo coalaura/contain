@@ -55,7 +55,7 @@ func main() {
 		return
 	}
 
-	log.MustFail(err)
+	log.MustExit(err)
 
 	log.Infoln("Session ended.")
 }

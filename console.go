@@ -164,10 +164,13 @@ func (c *console) runShell(ctx context.Context, script string) error {
 
 	token := hex.EncodeToString(id[:])
 	left := "__CONTAIN_" + token[:16]
-	right := token[16:] + "_DONE"
-	marker := left + right + ":"
+	right := token[16:]
+	beginMarker := left + right + "_BEGIN"
+	marker := left + right + "_DONE:"
 
-	payload := script + "; __contain_status=$?; printf '%s%s:%d\\n' '" + left + "' '" + right + "' \"$__contain_status\"\n"
+	// Split both markers so echoed input cannot be mistaken for command output.
+	prefix := "printf '%s%s_BEGIN\\n' '" + left + "' '" + right + "'; "
+	payload := prefix + script + "; __contain_status=$?; printf '%s%s_DONE:%d\\n' '" + left + "' '" + right + "' \"$__contain_status\"\n"
 
 	err = c.send(ctx, payload)
 	if err != nil {
@@ -175,12 +178,20 @@ func (c *console) runShell(ctx context.Context, script string) error {
 	}
 
 	status, tail, err := c.waitForStatus(ctx, 30*time.Second, marker)
+
+	_, output, found := bytes.Cut(tail, []byte(beginMarker))
+	if found {
+		tail = output
+	}
+
+	tail, _, _ = bytes.Cut(tail, []byte(marker))
+
 	if err != nil {
 		return fmt.Errorf("guest shell command timed out or failed to respond: %w (console: %s)", err, consoleExcerpt(tail))
 	}
 
 	if status != 0 {
-		return fmt.Errorf("guest shell returned exit status %d for %q (console: %s)", status, script, consoleExcerpt(tail))
+		return fmt.Errorf("guest shell returned exit status %d (console: %s)", status, consoleExcerpt(tail))
 	}
 
 	return nil
@@ -348,24 +359,9 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return fmt.Errorf("guest login must have root privileges: %w", err)
 	}
 
-	for index := range mounts {
-		mount := &mounts[index]
-
-		err = con.runShell(ctx, "mkdir -p "+shellQuote(mount.GuestPath))
-		if err != nil {
-			return fmt.Errorf("create guest mount point %q: %w", mount.GuestPath, err)
-		}
-
-		options := ""
-
-		if mount.Readonly {
-			options = " -o ro"
-		}
-
-		err = con.runShell(ctx, "mount -t virtiofs"+options+" "+shellQuote(mount.Tag)+" "+shellQuote(mount.GuestPath))
-		if err != nil {
-			return fmt.Errorf("mount virtio-fs export %q at %q: %w", mount.Tag, mount.GuestPath, err)
-		}
+	err = mountGuestFilesystems(ctx, con, mounts)
+	if err != nil {
+		return err
 	}
 
 	err = con.runShell(ctx, "cd /workspace")
@@ -377,11 +373,12 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 }
 
 func consoleExcerpt(tail []byte) string {
-	clean := strings.TrimSpace(string(ansiCSI.ReplaceAll(tail, nil)))
+	clean := strings.ReplaceAll(string(ansiCSI.ReplaceAll(tail, nil)), "\r", "")
+	clean = strings.TrimSpace(clean)
 
 	if len(clean) > 700 {
 		clean = clean[len(clean)-700:]
 	}
 
-	return strconv.Quote(clean)
+	return clean
 }

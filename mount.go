@@ -24,10 +24,8 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 		return errors.New("first guest mount must use tag \"workspace\" at \"/workspace\"")
 	}
 
-	var (
-		seenTags  = make(map[string]bool, len(mounts))
-		seenPaths = make(map[string]bool, len(mounts))
-	)
+	seenTags := make(map[string]bool, len(mounts))
+	seenPaths := make(map[string]bool, len(mounts))
 
 	for index := range mounts {
 		mount := &mounts[index]
@@ -40,12 +38,16 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 			return fmt.Errorf("invalid guest mount path %q", mount.GuestPath)
 		}
 
-		if mount.GuestPath != "/workspace" && (!strings.HasPrefix(mount.GuestPath, "/projects/") || strings.Contains(strings.TrimPrefix(mount.GuestPath, "/projects/"), "/")) {
-			return fmt.Errorf("guest mount %q must be /workspace or /projects/<name>", mount.GuestPath)
+		if index > 0 && path.Dir(mount.GuestPath) != "/projects" {
+			return fmt.Errorf("additional guest mount path %q must be a direct child of /projects", mount.GuestPath)
 		}
 
-		if seenTags[mount.Tag] || seenPaths[mount.GuestPath] {
-			return fmt.Errorf("duplicate guest mount tag %q or path %q", mount.Tag, mount.GuestPath)
+		if seenTags[mount.Tag] {
+			return fmt.Errorf("duplicate guest mount tag %q", mount.Tag)
+		}
+
+		if seenPaths[mount.GuestPath] {
+			return fmt.Errorf("duplicate guest mount path %q", mount.GuestPath)
 		}
 
 		seenTags[mount.Tag] = true

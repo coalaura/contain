@@ -30,12 +30,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount) error {
 
 	closeErr := output.Close()
 
-	err = errors.Join(err, closeErr)
-	if err != nil {
-		return fmt.Errorf("%w (log: %s)", err, output.Name())
-	}
-
-	return nil
+	return errors.Join(err, closeErr)
 }
 
 func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount) error {
