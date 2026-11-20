@@ -237,6 +237,10 @@ func ConnectConsole(ctx context.Context, address string, output io.Writer) (*con
 			return nil, fmt.Errorf("connect to guest console %s: %w (last dial: %v)", address, ctx.Err(), lastErr)
 		}
 
+		if !consoleNotReady(err) {
+			return nil, fmt.Errorf("connect to guest console %s: %w", address, err)
+		}
+
 		timer := time.NewTimer(100 * time.Millisecond)
 
 		select {

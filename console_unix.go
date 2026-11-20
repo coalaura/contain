@@ -39,6 +39,10 @@ func dialConsole(ctx context.Context, address string) (consoleConn, error) {
 	return dialer.DialContext(ctx, "unix", address)
 }
 
+func consoleNotReady(err error) bool {
+	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
+}
+
 func consoleDisconnected(err error) bool {
 	return errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET)
 }
