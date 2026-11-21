@@ -14,7 +14,7 @@ set -euo pipefail
 # Optional environment variables:
 #   DISK_SIZE=8G            Sparse ext4 disk size.
 #   ROOT_PASSWORD=alpine    Console root password.
-#   HOSTNAME=alpine-vm      Guest hostname.
+#   GUEST_HOSTNAME=contained Guest hostname.
 #   ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 #
 # This builder intentionally supports x86_64 only. The target rootfs is
@@ -23,7 +23,7 @@ set -euo pipefail
 OUTDIR="${1:-./build}"
 DISK_SIZE="${DISK_SIZE:-8G}"
 ROOT_PASSWORD="${ROOT_PASSWORD:-alpine}"
-HOSTNAME="${HOSTNAME:-alpine}"
+GUEST_HOSTNAME="${GUEST_HOSTNAME:-contained}"
 ALPINE_MIRROR="${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
 
 case "$(uname -m)" in
@@ -175,7 +175,7 @@ add_service savecache shutdown
 EOF_CHROOT
 
 # Configure the VM itself offline.
-printf '%s\n' "$HOSTNAME" | "${SUDO[@]}" tee "$MNT/etc/hostname" >/dev/null
+printf '%s\n' "$GUEST_HOSTNAME" | "${SUDO[@]}" tee "$MNT/etc/hostname" >/dev/null
 
 "${SUDO[@]}" mkdir -p "$MNT/etc/network"
 "${SUDO[@]}" tee "$MNT/etc/network/interfaces" >/dev/null <<'EOF_NETWORK'
