@@ -49,8 +49,11 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 
 		if mount.ParentPath == "" && index > 0 {
 			root := path.Dir(mount.GuestPath)
-			if root != guestProjectsRoot && root != guestConfigRoot && root != guestLocalRoot {
-				return fmt.Errorf("additional guest mount path %q must be a direct child of /projects, ~/.config or ~/.local", mount.GuestPath)
+
+			switch root {
+			case guestProjectsRoot, guestConfigRoot, guestLocalRoot, guestLocalRoot + "/share", guestLocalRoot + "/state", guestLocalRoot + "/bin":
+			default:
+				return fmt.Errorf("additional guest mount path %q must be a direct child of /projects, ~/.config, ~/.local, ~/.local/share, ~/.local/state or ~/.local/bin", mount.GuestPath)
 			}
 		}
 
@@ -60,6 +63,19 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 
 		if seenPaths[mount.GuestPath] != nil {
 			return fmt.Errorf("duplicate guest mount path %q", mount.GuestPath)
+		}
+
+		if mount.ParentPath == "" {
+			for previous := range index {
+				other := &mounts[previous]
+				if other.ParentPath != "" {
+					continue
+				}
+
+				if guestPathWithin(mount.GuestPath, other.GuestPath) || guestPathWithin(other.GuestPath, mount.GuestPath) {
+					return fmt.Errorf("overlapping guest mount paths %q and %q", other.GuestPath, mount.GuestPath)
+				}
+			}
 		}
 
 		if mount.ParentPath != "" {
