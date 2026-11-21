@@ -13,8 +13,66 @@ import (
 
 var cancelSynchronousIO = windows.NewLazySystemDLL("kernel32.dll").NewProc("CancelSynchronousIo")
 
-func relayInput(ctx context.Context, output io.Writer) error {
-	// Console reads are synchronous. Pin their thread so cancellation cannot
+func relayInput(ctx context.Context, output io.Writer, resize *terminalResize) error {
+	input := windows.Handle(os.Stdin.Fd())
+
+	var mode uint32
+
+	err := windows.GetConsoleMode(input, &mode)
+	if err == nil {
+		return relayConsoleInput(ctx, input, output, resize)
+	}
+
+	if resize == nil {
+		return relayStreamInput(ctx, output)
+	}
+
+	return relayRedirectedInput(ctx, output, resize)
+}
+
+func relayRedirectedInput(ctx context.Context, output io.Writer, resize *terminalResize) error {
+	// Redirecting stdin does not detach the console. Keep receiving its resize
+	// events, but take guest input exclusively from the redirected stream.
+	input, err := os.OpenFile("CONIN$", os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+
+	defer input.Close()
+
+	inputCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	done := make(chan error, 1)
+
+	go func() {
+		streamErr := relayStreamInput(inputCtx, output)
+		done <- streamErr
+
+		if streamErr != nil {
+			cancel()
+		}
+	}()
+
+	err = relayConsoleInput(inputCtx, windows.Handle(input.Fd()), io.Discard, resize)
+
+	cancel()
+
+	streamErr := <-done
+
+	if errors.Is(err, context.Canceled) {
+		err = nil
+	}
+
+	if errors.Is(streamErr, context.Canceled) {
+		streamErr = nil
+	}
+
+	return errors.Join(err, streamErr)
+}
+
+func relayStreamInput(ctx context.Context, output io.Writer) error {
+	// Redirected reads can be synchronous. Pin their thread so cancellation cannot
 	// interrupt unrelated I/O, and finish cancellation before releasing it.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

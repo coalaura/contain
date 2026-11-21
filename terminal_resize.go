@@ -2,20 +2,14 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"golang.org/x/term"
-)
-
-const (
-	terminalResizeInterval = 250 * time.Millisecond
-	terminalResizeMarker   = "__CONTAIN_RESIZE:"
 )
 
 type terminalSize struct {
@@ -24,16 +18,13 @@ type terminalSize struct {
 }
 
 type terminalResize struct {
-	control *console
-	cancel  context.CancelFunc
-	done    chan struct{}
-	err     error
+	control      *console
+	cancel       context.CancelFunc
+	events       chan struct{}
+	stopWatching func()
+	done         chan struct{}
+	err          error
 }
-
-//go:embed resize_guest.sh
-var guestResizeScript string
-
-var guestResizeCommand = "stty -F /dev/ttyS1 115200 raw -echo clocal -crtscts && setsid -f bash -c " + shellQuote(strings.ReplaceAll(strings.ReplaceAll(guestResizeScript, "\r\n", "\n"), "\t", "")) + " contain /dev/ttyS1 /dev/hvc0 </dev/null >/dev/null 2>&1"
 
 func (resize *terminalResize) Close() error {
 	resize.cancel()
@@ -43,19 +34,27 @@ func (resize *terminalResize) Close() error {
 	return resize.err
 }
 
+func (resize *terminalResize) notify() {
+	if resize == nil {
+		return
+	}
+
+	select {
+	case resize.events <- struct{}{}:
+	default:
+	}
+}
+
 func (resize *terminalResize) monitor(ctx context.Context, descriptor int, size terminalSize) {
 	defer close(resize.done)
 	defer resize.control.Close()
-
-	// Polling also covers Windows console resizing without consuming input events.
-	ticker := time.NewTicker(terminalResizeInterval)
-	defer ticker.Stop()
+	defer resize.stopWatching()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-resize.events:
 		}
 
 		current, err := readTerminalSize(descriptor)
@@ -77,11 +76,6 @@ func (resize *terminalResize) monitor(ctx context.Context, descriptor int, size 
 }
 
 func startTerminalResize(ctx context.Context, con *console, address string, descriptor int) (*terminalResize, error) {
-	size, err := readTerminalSize(descriptor)
-	if err != nil {
-		return nil, fmt.Errorf("read host terminal size: %w", err)
-	}
-
 	control, err := ConnectConsole(ctx, address, io.Discard)
 	if err != nil {
 		return nil, fmt.Errorf("connect terminal resize channel: %w", err)
@@ -91,10 +85,6 @@ func startTerminalResize(ctx context.Context, con *console, address string, desc
 	if err == nil {
 		// Wait until the guest has opened the UART so the initial update cannot be lost.
 		err = waitTerminalResize(ctx, control)
-	}
-
-	if err == nil {
-		err = sendTerminalSize(ctx, control, size)
 	}
 
 	if err != nil {
@@ -108,7 +98,25 @@ func startTerminalResize(ctx context.Context, con *console, address string, desc
 	resize := &terminalResize{
 		control: control,
 		cancel:  cancel,
+		events:  make(chan struct{}, 1),
 		done:    make(chan struct{}),
+	}
+
+	// Subscribe before taking the initial snapshot so a startup resize is not lost.
+	resize.stopWatching = watchTerminalResize(resize)
+
+	size, err := readTerminalSize(descriptor)
+	if err == nil {
+		err = sendTerminalSize(ctx, control, size)
+	}
+
+	if err != nil {
+		cancel()
+
+		resize.stopWatching()
+		control.Close()
+
+		return nil, fmt.Errorf("initialize guest terminal size: %w", err)
 	}
 
 	go resize.monitor(resizeCtx, descriptor, size)
@@ -144,22 +152,69 @@ func readTerminalSize(descriptor int) (terminalSize, error) {
 }
 
 func sendTerminalSize(ctx context.Context, control *console, size terminalSize) error {
-	err := control.sendLine(ctx, fmt.Sprintf("%d %d", size.rows, size.columns))
-	if err != nil {
-		return fmt.Errorf("send guest terminal size: %w", err)
-	}
+	var frame [4]byte
 
-	return waitTerminalResize(ctx, control)
+	binary.LittleEndian.PutUint16(frame[0:2], uint16(size.columns))
+	binary.LittleEndian.PutUint16(frame[2:4], uint16(size.rows))
+
+	return exchangeTerminalResize(ctx, control, frame[:])
 }
 
 func waitTerminalResize(ctx context.Context, control *console) error {
-	status, _, err := control.waitForStatus(ctx, 5*time.Second, terminalResizeMarker)
+	return exchangeTerminalResize(ctx, control, nil)
+}
+
+func exchangeTerminalResize(ctx context.Context, control *console, frame []byte) error {
+	deadline := time.Now().Add(5 * time.Second)
+	contextDeadline, ok := ctx.Deadline()
+
+	if ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+
+	err := control.conn.SetReadDeadline(deadline)
+	if err != nil {
+		return err
+	}
+
+	err = control.conn.SetWriteDeadline(deadline)
+	if err != nil {
+		return err
+	}
+
+	canceled := make(chan struct{})
+
+	stop := context.AfterFunc(ctx, func() {
+		control.conn.SetReadDeadline(time.Now())
+		control.conn.SetWriteDeadline(time.Now())
+
+		close(canceled)
+	})
+
+	defer func() {
+		if !stop() {
+			<-canceled
+		}
+
+		control.conn.SetReadDeadline(time.Time{})
+		control.conn.SetWriteDeadline(time.Time{})
+	}()
+
+	if len(frame) != 0 {
+		_, err = control.conn.Write(frame)
+		if err != nil {
+			return fmt.Errorf("send guest terminal size: %w", err)
+		}
+	}
+
+	// The helper sends zero when ready and after each successful resize.
+	status, err := control.reader.ReadByte()
 	if err != nil {
 		return fmt.Errorf("wait for guest terminal resize: %w", err)
 	}
 
 	if status != 0 {
-		return fmt.Errorf("guest terminal resize returned exit status %d", status)
+		return fmt.Errorf("guest terminal resize returned status %d", status)
 	}
 
 	return nil

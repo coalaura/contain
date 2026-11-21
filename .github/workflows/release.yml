@@ -23,6 +23,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Build guest helper
+        uses: coalaura/build@v1
+        with:
+          os: linux
+          arch: amd64
+          optimization: compatible
+          generate: false
+          package: ./guest
+          output: guest/resize
+
       - name: Build
         id: build
         uses: coalaura/build@v1

@@ -42,7 +42,11 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 	defer cleanup()
 
 	descriptor := terminalDescriptor()
-	resizeAddress := ""
+
+	var (
+		resizeAddress   string
+		helperDirectory string
+	)
 
 	if descriptor >= 0 {
 		var cleanupResize func()
@@ -53,9 +57,18 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 		}
 
 		defer cleanupResize()
+
+		var cleanupHelper func()
+
+		helperDirectory, cleanupHelper, err = prepareGuestHelper()
+		if err != nil {
+			return err
+		}
+
+		defer cleanupHelper()
 	}
 
-	args, err := openVMMArgs(address, resizeAddress, mounts, temporary)
+	args, err := openVMMArgs(address, resizeAddress, helperDirectory, mounts, temporary)
 	if err != nil {
 		return err
 	}
@@ -144,7 +157,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 
 	log.Successf("Guest ready in %s.\n", took)
 
-	relayErr := relayTerminal(ctx, con, exited)
+	relayErr := relayTerminal(ctx, con, exited, resize)
 	con.Close()
 
 	if resize != nil {
@@ -166,7 +179,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 	}
 }
 
-func openVMMArgs(address, resizeAddress string, mounts []GuestMount, temporary bool) ([]string, error) {
+func openVMMArgs(address, resizeAddress, helperDirectory string, mounts []GuestMount, temporary bool) ([]string, error) {
 	err := ValidateGuestMounts(mounts)
 	if err != nil {
 		return nil, err
@@ -178,13 +191,22 @@ func openVMMArgs(address, resizeAddress string, mounts []GuestMount, temporary b
 		return nil, fmt.Errorf("OpenVMM cannot represent resize channel path %q: commas, equals signs and NUL are unsupported", resizeAddress)
 	}
 
-	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts)+2)
+	if strings.ContainsAny(helperDirectory, ",\x00") {
+		return nil, fmt.Errorf("OpenVMM cannot represent guest helper path %q: commas and NUL are unsupported", helperDirectory)
+	}
+
+	if (resizeAddress == "") != (helperDirectory == "") {
+		return nil, errors.New("terminal resizing requires both a control channel and a guest helper")
+	}
+
+	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts)+6)
 	if err != nil {
 		return nil, err
 	}
 
 	if resizeAddress != "" {
 		args = append(args, "--com2", "listen="+resizeAddress)
+		args = append(args, "--pcie-root-port", "rc0:guest", "--virtio-fs", "pcie_port=guest:contain_guest,"+helperDirectory+",ro")
 	}
 
 	for index := range mounts {

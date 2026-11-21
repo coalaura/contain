@@ -11,7 +11,7 @@ import (
 	"golang.org/x/term"
 )
 
-func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}) error {
+func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, resize *terminalResize) error {
 	fd := int(os.Stdin.Fd())
 
 	if term.IsTerminal(fd) {
@@ -27,7 +27,7 @@ func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}) er
 	inputDone := make(chan error, 1)
 
 	go func() {
-		err := relayInput(inputCtx, con.Writer())
+		err := relayInput(inputCtx, con.Writer(), resize)
 		inputDone <- err
 
 		if err != nil && inputCtx.Err() == nil {

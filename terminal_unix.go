@@ -11,17 +11,43 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func relayInput(ctx context.Context, output io.Writer) error {
+func relayInput(ctx context.Context, output io.Writer, resize *terminalResize) error {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+
+	defer reader.Close()
+	defer writer.Close()
+
+	canceled := make(chan struct{})
+
+	stop := context.AfterFunc(ctx, func() {
+		writer.Write([]byte{1})
+
+		close(canceled)
+	})
+
+	defer func() {
+		if !stop() {
+			<-canceled
+		}
+	}()
+
 	var buffer [4096]byte
 
-	poll := []unix.PollFd{{Fd: int32(os.Stdin.Fd()), Events: unix.POLLIN}}
+	// A cancellation pipe wakes the blocking wait without periodic timeouts.
+	poll := []unix.PollFd{
+		{Fd: int32(os.Stdin.Fd()), Events: unix.POLLIN},
+		{Fd: int32(reader.Fd()), Events: unix.POLLIN},
+	}
 
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		ready, err := unix.Poll(poll, 100)
+		_, err := unix.Poll(poll, -1)
 		if errors.Is(err, unix.EINTR) {
 			continue
 		}
@@ -30,8 +56,8 @@ func relayInput(ctx context.Context, output io.Writer) error {
 			return err
 		}
 
-		if ready == 0 {
-			continue
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 
 		count, err := os.Stdin.Read(buffer[:])

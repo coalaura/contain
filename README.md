@@ -17,9 +17,10 @@ Run tools and agents in an isolated Linux workspace powered by OpenVMM.
 
 Download a prebuilt binary from [GitHub Releases](https://github.com/coalaura/contain/releases) and place it on your `PATH`.
 
-Or build from source with Go 1.27+:
+Or build from source with Go 1.27+. Generate the embedded Linux guest helper before building (and again after changing its source):
 
 ```sh
+go generate .
 go build -o contain .
 ```
 
@@ -129,5 +130,6 @@ An optional `./prepare-vm.sh` script is also included to preinstall common devel
 ## Notes
 
 - Console communication uses a per-session named pipe on Windows and a Unix domain socket on Linux and macOS.
+- Terminal dimensions are synchronized at startup and on host resize events, using `SIGWINCH` on Unix and console input events on Windows. A bundled Go helper receives updates over COM2 and resizes `/dev/hvc0`; existing images do not need rebuilding.
 - Session logs are written to `~/.local/contain/contain-*.log`.
 - Empty mountpoint directories under `/projects` and the guest's `$HOME/.config` are removed automatically on unmount and normal guest shutdown; the parent directories are preserved.
