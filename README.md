@@ -39,20 +39,25 @@ machine:
   command: "opencode" # optional; shuts down the VM on exit
 
 mounts:
-  - name: downloads
-    host: /path/to/downloads
-  - name: opencode
-    target: config
-    host: ~/.config/opencode
+  - host: /path/to/downloads
+    guest: /projects/downloads
+  - host: ~/.config/opencode
+    guest: ~/.config/opencode
     readonly: true
     writable:
       - context-mode
+
+snapshots:
+  - host: ~/.local/share/opencode/auth.json
+    guest: ~/.local/share/opencode/auth.json
 ```
 
 - The current working directory is always mounted read/write at `/workspace`.
-- Mounts use `target: projects` by default, mounting at `/projects/<name>`. Use `target: config` for the guest's `$HOME/.config/<name>` or `target: local` for `$HOME/.local/<name>`. Targets `local/share`, `local/state` and `local/bin` mount at `$HOME/.local/share/<name>`, `$HOME/.local/state/<name>` and `$HOME/.local/bin/<name>`, respectively. Names may contain ASCII letters, digits, `.`, `_` and `-` (excluding `.` and `..`).
-- Host paths support `~` for the host user's home, including `~\.config\opencode` on Windows. This also works with `--mount` and `machine.source`. Dry-run shows guest home-relative destinations as `~/.config/<name>` or `~/.local/<name>` until the guest home can be resolved at login.
+- Mounts require an explicit `guest` directory, one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin`. For example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`. Replace older `name` + `target` entries with the full `guest` path.
+- Host paths support `~` for the host user's home, including `~\.config\opencode` on Windows. This also works with `--mount` and `machine.source`. Guest `~` means `/root`, the home in the supported Alpine root session; absolute equivalents work too. Dry-run shows the resolved absolute guest paths.
 - `writable` exports existing relative subdirectories read/write beneath a `readonly: true` mount, allowing selective persistence without making the whole mount writable.
+- `snapshots` copies individual host files into the guest once per session, before the shell or command starts. `guest` accepts any absolute guest file path or `~/...`. Missing parent directories are created and existing files are replaced with private (`0600`) copies. Empty files are supported. The guest can modify its copies, but changes are never synchronized with the source files. Copies remain on persistent guest disks until replaced at the next startup; `--temporary` discards them with the rest of the guest disk changes.
+- Go validates host sources, guest path syntax and configured overlaps before starting the VM, including during dry-run. Snapshot paths cannot overlap host mounts or other snapshots; mount paths cannot overlap except for explicit writable overrides. Paths must be canonical, without traversal, trailing slashes or control characters. Validation uses configured paths, not the guest filesystem: it does not resolve guest symlinks or inspect existing mounts. Parent directories in the guest must not redirect configured paths into host mounts.
 - When `machine.command` is set, it runs in Bash inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead. Exiting the interactive shell with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`.
 - Bash history is temporarily disabled during session initialization, keeping internal setup and shutdown commands out of history. The previous history setting is restored before handing over the terminal.
 
@@ -71,7 +76,7 @@ contain create [--size 8G] [--tools]
 | `--run COMMAND` | Run a single-line shell command instead of the configured command. Cannot be combined with `--shell`. |
 | `--mount HOST[:NAME][:ro\|rw]` | Add a session-only mount under `/projects/<name>`. Repeatable; defaults to read/write and infers `NAME` from the host directory basename. |
 | `--temporary`, `--temp` | Discard guest disk changes on exit using an OpenVMM memory-backed diff layer. `disk.raw` stays untouched; writable host mounts still persist. |
-| `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, disk mode and command without starting the VM. |
+| `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, snapshots, disk mode and command without starting the VM. |
 | `--help` | Show command-specific help. |
 
 ### Examples
@@ -95,7 +100,7 @@ contain --mount ./datasets:ro
 contain --mount ./shared:docs:ro
 contain --mount ./dir:ro:rw # mounts at /projects/ro read/write
 
-# Preview resolved mounts, disk mode and command without booting
+# Preview resolved mounts, snapshots, disk mode and command without booting
 contain --dry --temp --mount ./datasets:ro
 ```
 
@@ -132,4 +137,4 @@ An optional `./prepare-vm.sh` script is also included to preinstall common devel
 - Console communication uses a per-session named pipe on Windows and a Unix domain socket on Linux and macOS.
 - Terminal dimensions are synchronized at startup and on host resize events, using `SIGWINCH` on Unix and console input events on Windows. A bundled Go helper receives updates over COM2 and resizes `/dev/hvc0`; existing images do not need rebuilding.
 - Session logs are written to `~/.local/contain/contain-*.log`.
-- Empty mountpoint directories under `/projects` and the guest's `$HOME/.config` are removed automatically on unmount and normal guest shutdown; the parent directories are preserved.
+- Empty mountpoint directories are removed automatically on unmount and normal guest shutdown; their parent directories are preserved.

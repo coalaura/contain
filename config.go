@@ -30,16 +30,21 @@ type MachineConfig struct {
 }
 
 type MountConfig struct {
-	Name     string   `yaml:"name"`
-	Target   string   `yaml:"target,omitempty"`
 	Host     string   `yaml:"host"`
+	Guest    string   `yaml:"guest"`
 	Readonly bool     `yaml:"readonly"`
 	Writable []string `yaml:"writable,omitempty"`
 }
 
+type SnapshotConfig struct {
+	Host  string `yaml:"host"`
+	Guest string `yaml:"guest"`
+}
+
 type Config struct {
-	Machine MachineConfig `yaml:"machine"`
-	Mounts  []MountConfig `yaml:"mounts"`
+	Machine   MachineConfig    `yaml:"machine"`
+	Mounts    []MountConfig    `yaml:"mounts"`
+	Snapshots []SnapshotConfig `yaml:"snapshots"`
 }
 
 var MaxProcs = runtime.GOMAXPROCS(0)
@@ -110,30 +115,13 @@ func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]Gue
 		for index := range group {
 			mount := &group[index]
 
-			if !validMountName(mount.Name) {
-				return nil, fmt.Errorf("mounts[%d].name must contain only ASCII letters, digits, dots, underscores or hyphens, and cannot be empty, '.' or '..'", number)
+			guestPath, err := resolveGuestPath(mount.Guest)
+			if err != nil {
+				return nil, fmt.Errorf("mounts[%d].guest: %w", number, err)
 			}
 
 			if len(mount.Writable) > 0 && !mount.Readonly {
 				return nil, fmt.Errorf("mounts[%d].writable requires readonly: true", number)
-			}
-
-			root := guestProjectsRoot
-
-			switch mount.Target {
-			case "", "projects":
-			case "config":
-				root = guestConfigRoot
-			case "local":
-				root = guestLocalRoot
-			case "local/share":
-				root = guestLocalRoot + "/share"
-			case "local/state":
-				root = guestLocalRoot + "/state"
-			case "local/bin":
-				root = guestLocalRoot + "/bin"
-			default:
-				return nil, fmt.Errorf("mounts[%d].target must be projects, config, local, local/share, local/state or local/bin, got %q", number, mount.Target)
 			}
 
 			host, err := resolveHostPath(mount.Host)
@@ -142,7 +130,6 @@ func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]Gue
 			}
 
 			tag := "project" + strconv.Itoa(number)
-			guestPath := root + "/" + mount.Name
 
 			mounts = append(mounts, GuestMount{
 				Tag:       tag,
@@ -181,7 +168,8 @@ func (c *Config) Store() error {
 	var (
 		buffer   bytes.Buffer
 		comments = yaml.CommentMap{
-			"$.mounts": {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name, host (supports ~) and optional readonly (default false)"), yaml.HeadComment(" target: projects (default, /projects), config (guest $HOME/.config) or local (guest $HOME/.local)"), yaml.HeadComment(" local/share, local/state and local/bin target the corresponding subdirectories of guest $HOME/.local"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
+			"$.mounts":    {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: host, guest and optional readonly (default false)"), yaml.HeadComment(" guest: a direct child of /projects, ~/.config, ~/.local, ~/.local/share, ~/.local/state or ~/.local/bin"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
+			"$.snapshots": {yaml.HeadComment(""), yaml.HeadComment(" files copied once per session: host and guest (absolute path or ~/...; guest ~ means /root)"), yaml.HeadComment(" replaces guest files with private (0600) copies; destinations overlapping host mounts are rejected")},
 
 			"$.machine.source":     {yaml.HeadComment(" path to the guest image directory (supports ~)")},
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
@@ -211,7 +199,8 @@ func DefaultConfig() *Config {
 				Password: "alpine",
 			},
 		},
-		Mounts: []MountConfig{},
+		Mounts:    []MountConfig{},
+		Snapshots: []SnapshotConfig{},
 	}
 }
 

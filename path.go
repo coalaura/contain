@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"strings"
 )
+
+const guestHome = "/root"
 
 type Paths struct {
 	WorkingDirectory string
@@ -80,7 +84,7 @@ func FilesExist(files ...string) error {
 
 func resolveHostPath(value string) (string, error) {
 	if value == "" {
-		return "", errors.New("host directory cannot be empty")
+		return "", errors.New("host path cannot be empty")
 	}
 
 	if value[0] == '~' {
@@ -97,4 +101,22 @@ func resolveHostPath(value string) (string, error) {
 	}
 
 	return filepath.Abs(value)
+}
+
+func resolveGuestPath(value string) (string, error) {
+	absolute := path.IsAbs(value) || strings.HasPrefix(value, "~/")
+
+	control := strings.ContainsFunc(value, func(character rune) bool {
+		return character < ' ' || character == '\x7f'
+	})
+
+	if !absolute || path.Clean(value) != value || value == "/" || control {
+		return "", errors.New("must be a clean absolute guest path or ~/... without control characters")
+	}
+
+	if strings.HasPrefix(value, "~/") {
+		return guestHome + value[1:], nil
+	}
+
+	return value, nil
 }

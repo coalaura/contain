@@ -13,7 +13,7 @@ import (
 
 const shutdownGrace = 2 * time.Second
 
-func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string, temporary bool) error {
+func RunOpenVMM(ctx context.Context, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
 	log.Stepln("Starting VM...")
 
 	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
@@ -23,7 +23,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string, tempor
 
 	log.Subf("Session log: %s\n", output.Name())
 
-	err = runOpenVMM(ctx, output, mounts, command, temporary)
+	err = runOpenVMM(ctx, output, mounts, snapshots, command, temporary)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
@@ -33,7 +33,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string, tempor
 	return errors.Join(err, closeErr)
 }
 
-func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, command string, temporary bool) error {
+func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
 	address, cleanup, err := consoleAddress()
 	if err != nil {
 		return err
@@ -68,7 +68,14 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 		defer cleanupHelper()
 	}
 
-	args, err := openVMMArgs(address, resizeAddress, helperDirectory, mounts, temporary)
+	snapshotDirectory, cleanupSnapshots, err := prepareGuestSnapshots(snapshots)
+	if err != nil {
+		return err
+	}
+
+	defer cleanupSnapshots()
+
+	args, err := openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory, mounts, temporary)
 	if err != nil {
 		return err
 	}
@@ -137,6 +144,11 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 		return startupError(ctx, exited, &processErr, err)
 	}
 
+	err = copyGuestSnapshots(consoleCtx, con, snapshots)
+	if err != nil {
+		return startupError(ctx, exited, &processErr, err)
+	}
+
 	var resize *terminalResize
 
 	if resizeAddress != "" {
@@ -179,7 +191,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 	}
 }
 
-func openVMMArgs(address, resizeAddress, helperDirectory string, mounts []GuestMount, temporary bool) ([]string, error) {
+func openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory string, mounts []GuestMount, temporary bool) ([]string, error) {
 	err := ValidateGuestMounts(mounts)
 	if err != nil {
 		return nil, err
@@ -195,11 +207,15 @@ func openVMMArgs(address, resizeAddress, helperDirectory string, mounts []GuestM
 		return nil, fmt.Errorf("OpenVMM cannot represent guest helper path %q: commas and NUL are unsupported", helperDirectory)
 	}
 
+	if strings.ContainsAny(snapshotDirectory, ",\x00") {
+		return nil, fmt.Errorf("OpenVMM cannot represent snapshot directory %q: commas and NUL are unsupported", snapshotDirectory)
+	}
+
 	if (resizeAddress == "") != (helperDirectory == "") {
 		return nil, errors.New("terminal resizing requires both a control channel and a guest helper")
 	}
 
-	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts)+6)
+	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts)+10)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +223,10 @@ func openVMMArgs(address, resizeAddress, helperDirectory string, mounts []GuestM
 	if resizeAddress != "" {
 		args = append(args, "--com2", "listen="+resizeAddress)
 		args = append(args, "--pcie-root-port", "rc0:guest", "--virtio-fs", "pcie_port=guest:contain_guest,"+helperDirectory+",ro")
+	}
+
+	if snapshotDirectory != "" {
+		args = append(args, "--pcie-root-port", "rc0:snapshots", "--virtio-fs", "pcie_port=snapshots:contain_snapshots,"+snapshotDirectory+",ro")
 	}
 
 	for index := range mounts {

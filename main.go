@@ -61,7 +61,7 @@ func main() {
 					&cli.BoolFlag{
 						Name:    "dry-run",
 						Aliases: []string{"dry"},
-						Usage:   "Print the resolved mounts, disk mode and command without starting the VM",
+						Usage:   "Print the resolved mounts, snapshots, disk mode and command without starting the VM",
 					},
 				},
 				Action: run,
@@ -136,6 +136,11 @@ func run(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
+	snapshots, err := config.GuestSnapshots(mounts)
+	if err != nil {
+		return err
+	}
+
 	startupCommand := config.Machine.Command
 
 	if command.IsSet("run") {
@@ -147,10 +152,10 @@ func run(ctx context.Context, command *cli.Command) error {
 	temporary := command.Bool("temporary")
 
 	if command.Bool("dry-run") {
-		return printDryRun(command.Writer, mounts, startupCommand, temporary)
+		return printDryRun(command.Writer, mounts, snapshots, startupCommand, temporary)
 	}
 
-	err = RunOpenVMM(ctx, mounts, startupCommand, temporary)
+	err = RunOpenVMM(ctx, mounts, snapshots, startupCommand, temporary)
 	if err != nil {
 		return err
 	}
@@ -161,7 +166,7 @@ func run(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func printDryRun(output io.Writer, mounts []GuestMount, command string, temporary bool) error {
+func printDryRun(output io.Writer, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 
 	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tHOST")
@@ -186,6 +191,27 @@ func printDryRun(output io.Writer, mounts []GuestMount, command string, temporar
 	err = writer.Flush()
 	if err != nil {
 		return err
+	}
+
+	if len(snapshots) > 0 {
+		_, err = fmt.Fprintln(writer, "\nSnapshots (copied at startup):\n  GUEST\tHOST")
+		if err != nil {
+			return err
+		}
+
+		for index := range snapshots {
+			snapshot := &snapshots[index]
+
+			_, err = fmt.Fprintf(writer, "  %s\t%s\n", snapshot.GuestPath, snapshot.HostPath)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = writer.Flush()
+		if err != nil {
+			return err
+		}
 	}
 
 	if command == "" {

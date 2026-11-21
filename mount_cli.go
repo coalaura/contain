@@ -9,6 +9,7 @@ import (
 
 func parseMount(value string) (MountConfig, error) {
 	mount := MountConfig{Host: value}
+	name := ""
 	volume := filepath.VolumeName(value)
 	offset := 0
 
@@ -30,7 +31,12 @@ func parseMount(value string) (MountConfig, error) {
 			return MountConfig{}, errors.New("expected a mount name or ro/rw after ':'")
 		}
 
-		name, mode, explicitMode := strings.Cut(options, ":")
+		var (
+			mode         string
+			explicitMode bool
+		)
+
+		name, mode, explicitMode = strings.Cut(options, ":")
 		if !explicitMode && (name == "ro" || name == "rw") {
 			mode = name
 			name = ""
@@ -40,7 +46,6 @@ func parseMount(value string) (MountConfig, error) {
 			return MountConfig{}, fmt.Errorf("invalid mount mode %q: expected ro or rw", mode)
 		}
 
-		mount.Name = name
 		mount.Readonly = mode == "ro"
 	}
 
@@ -55,16 +60,18 @@ func parseMount(value string) (MountConfig, error) {
 
 	mount.Host = host
 
-	if mount.Name == "" {
-		mount.Name = filepath.Base(host)
-		if !validMountName(mount.Name) {
+	if name == "" {
+		name = filepath.Base(host)
+		if !validMountName(name) {
 			return MountConfig{}, fmt.Errorf("cannot infer a valid mount name from %q: use HOST:NAME[:ro|rw]", host)
 		}
 	}
 
-	if !validMountName(mount.Name) {
-		return MountConfig{}, fmt.Errorf("invalid mount name %q: use ASCII letters, digits, dots, underscores or hyphens, except '.' and '..'", mount.Name)
+	if !validMountName(name) {
+		return MountConfig{}, fmt.Errorf("invalid mount name %q: use ASCII letters, digits, dots, underscores or hyphens, except '.' and '..'", name)
 	}
+
+	mount.Guest = guestProjectsRoot + "/" + name
 
 	return mount, nil
 }

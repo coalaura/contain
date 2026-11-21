@@ -11,8 +11,8 @@ import (
 
 const (
 	guestProjectsRoot = "/projects"
-	guestConfigRoot   = "~/.config"
-	guestLocalRoot    = "~/.local"
+	guestConfigRoot   = guestHome + "/.config"
+	guestLocalRoot    = guestHome + "/.local"
 )
 
 type GuestMount struct {
@@ -42,8 +42,8 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 			return fmt.Errorf("invalid virtio-fs tag %q", mount.Tag)
 		}
 
-		homePath := strings.HasPrefix(mount.GuestPath, guestConfigRoot+"/") || strings.HasPrefix(mount.GuestPath, guestLocalRoot+"/")
-		if (!path.IsAbs(mount.GuestPath) && !homePath) || path.Clean(mount.GuestPath) != mount.GuestPath || strings.ContainsRune(mount.GuestPath, '\x00') {
+		resolved, err := resolveGuestPath(mount.GuestPath)
+		if err != nil || resolved != mount.GuestPath {
 			return fmt.Errorf("invalid guest mount path %q", mount.GuestPath)
 		}
 
