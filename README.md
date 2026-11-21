@@ -77,8 +77,10 @@ contain create [--size 8G] [--tools]
 | `--run COMMAND` | Run a single-line shell command instead of the configured command. Cannot be combined with `--shell`. |
 | `--mount HOST[:NAME][:ro\|rw]` | Add a session-only mount under `/projects/<name>`. Repeatable; defaults to read/write and infers `NAME` from the host directory basename. |
 | `--temporary`, `--temp` | Discard guest disk changes on exit using an OpenVMM memory-backed diff layer. `disk.raw` stays untouched; writable host mounts still persist. |
-| `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, snapshots, disk mode and command without starting the VM. |
+| `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, whether they hide existing guest files, snapshots, disk mode and command without starting the VM. |
 | `--help` | Show command-specific help. |
+
+Dry-run inspects `disk.raw` read-only. `OVERRIDES FILES` is `yes` when a mount destination contains any file, including an empty file, anywhere below it; trees containing only empty directories count as empty. Symlinks and other non-directory entries count as content. Writable overrides show `n/a (parent mount)` because they cover a host export rather than the guest disk. Unreadable destinations or symlinks in the destination path show `unknown` with a reason. This is an offline preview of the disk, not a check of paths created or changed during boot, and does not change mounting behavior.
 
 ### Examples
 

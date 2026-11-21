@@ -12,3 +12,6 @@ require (
 )
 
 require github.com/google/uuid v1.6.0 // indirect
+
+// Pending https://github.com/diskfs/go-diskfs/pull/464.
+replace github.com/diskfs/go-diskfs => github.com/coalaura/go-diskfs v0.0.0-20261121230315-e47771e0b005

@@ -64,7 +64,7 @@ func main() {
 					&cli.BoolFlag{
 						Name:    "dry-run",
 						Aliases: []string{"dry"},
-						Usage:   "Print the resolved mounts, snapshots, disk mode and command without starting the VM",
+						Usage:   "Preview mounts and hidden guest files, snapshots, disk mode and command without starting the VM",
 					},
 				},
 				Action: run,
@@ -174,7 +174,7 @@ func run(ctx context.Context, command *cli.Command) error {
 	temporary := command.Bool("temporary")
 
 	if command.Bool("dry-run") {
-		return printDryRun(command.Writer, mounts, snapshots, startupCommand, temporary)
+		return printDryRun(command.Writer, config.Machine.disk, mounts, snapshots, startupCommand, temporary)
 	}
 
 	err = RunOpenVMM(ctx, mounts, snapshots, startupCommand, temporary)
@@ -188,10 +188,11 @@ func run(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func printDryRun(output io.Writer, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
+func printDryRun(output io.Writer, diskPath string, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
+	inspections := inspectMountTargets(diskPath, mounts)
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 
-	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tHOST")
+	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tOVERRIDES FILES\tHOST")
 	if err != nil {
 		return err
 	}
@@ -211,7 +212,7 @@ func printDryRun(output io.Writer, mounts []GuestMount, snapshots []GuestSnapsho
 			access = "read-only"
 		}
 
-		_, err = fmt.Fprintf(writer, "  %s\t%s\t%s\n", mount.GuestPath, access, mount.HostPath)
+		_, err = fmt.Fprintf(writer, "  %s\t%s\t%s\t%s\n", mount.GuestPath, access, inspections[index].status, mount.HostPath)
 		if err != nil {
 			return err
 		}
@@ -220,6 +221,18 @@ func printDryRun(output io.Writer, mounts []GuestMount, snapshots []GuestSnapsho
 	err = writer.Flush()
 	if err != nil {
 		return err
+	}
+
+	for index := range inspections {
+		inspection := &inspections[index]
+		if inspection.err == nil {
+			continue
+		}
+
+		_, err = fmt.Fprintf(output, "  Cannot inspect %s: %v\n", mounts[index].GuestPath, inspection.err)
+		if err != nil {
+			return err
+		}
 	}
 
 	if len(snapshots) > 0 {
