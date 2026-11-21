@@ -41,7 +41,21 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 
 	defer cleanup()
 
-	args, err := openVMMArgs(address, mounts, temporary)
+	descriptor := terminalDescriptor()
+	resizeAddress := ""
+
+	if descriptor >= 0 {
+		var cleanupResize func()
+
+		resizeAddress, cleanupResize, err = consoleAddress()
+		if err != nil {
+			return err
+		}
+
+		defer cleanupResize()
+	}
+
+	args, err := openVMMArgs(address, resizeAddress, mounts, temporary)
 	if err != nil {
 		return err
 	}
@@ -110,6 +124,17 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 		return startupError(ctx, exited, &processErr, err)
 	}
 
+	var resize *terminalResize
+
+	if resizeAddress != "" {
+		resize, err = startTerminalResize(consoleCtx, con, resizeAddress, descriptor)
+		if err != nil {
+			return startupError(ctx, exited, &processErr, err)
+		}
+
+		defer resize.Close()
+	}
+
 	err = con.startCommand(consoleCtx, command)
 	if err != nil {
 		return startupError(ctx, exited, &processErr, err)
@@ -121,6 +146,10 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 
 	relayErr := relayTerminal(ctx, con, exited)
 	con.Close()
+
+	if resize != nil {
+		relayErr = errors.Join(relayErr, resize.Close())
+	}
 
 	// A console can disconnect without OpenVMM exiting. Give poweroff time to
 	// finish, then let deferred cancellation terminate and reap the process.
@@ -137,7 +166,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 	}
 }
 
-func openVMMArgs(address string, mounts []GuestMount, temporary bool) ([]string, error) {
+func openVMMArgs(address, resizeAddress string, mounts []GuestMount, temporary bool) ([]string, error) {
 	err := ValidateGuestMounts(mounts)
 	if err != nil {
 		return nil, err
@@ -145,9 +174,17 @@ func openVMMArgs(address string, mounts []GuestMount, temporary bool) ([]string,
 
 	cmdline := "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4 contain.mounts=1"
 
-	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts))
+	if strings.ContainsAny(resizeAddress, ",=\x00") {
+		return nil, fmt.Errorf("OpenVMM cannot represent resize channel path %q: commas, equals signs and NUL are unsupported", resizeAddress)
+	}
+
+	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts)+2)
 	if err != nil {
 		return nil, err
+	}
+
+	if resizeAddress != "" {
+		args = append(args, "--com2", "listen="+resizeAddress)
 	}
 
 	for index := range mounts {
