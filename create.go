@@ -19,14 +19,6 @@ func create(ctx context.Context, command *cli.Command) error {
 		return fmt.Errorf("unexpected argument %q", command.Args().First())
 	}
 
-	runFlags := [...]string{"shell", "run", "mount", "temporary", "dry-run"}
-
-	for _, name := range runFlags {
-		if command.IsSet(name) {
-			return fmt.Errorf("--%s cannot be used with create", name)
-		}
-	}
-
 	if runtime.GOARCH != "amd64" {
 		return errors.New("create currently requires an amd64 host")
 	}

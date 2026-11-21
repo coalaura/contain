@@ -27,38 +27,45 @@ func main() {
 	defer stop()
 
 	cmd := &cli.Command{
-		Name:                      "contain",
-		Usage:                     "Run tools and agents in an isolated Linux workspace",
-		UsageText:                 "contain [options]\ncontain create [--size 8G]",
-		Version:                   version,
-		HideHelpCommand:           true,
-		DisableSliceFlagSeparator: true,
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  "shell",
-				Usage: "Start a shell instead of the configured command",
-			},
-			&cli.StringFlag{
-				Name:      "run",
-				Usage:     "Run `command` instead of the configured command",
-				Validator: validateShellCommand,
-			},
-			&cli.StringSliceFlag{
-				Name:  "mount",
-				Usage: "Add a session mount `HOST[:NAME][:ro|rw]` (repeatable; name defaults to the directory basename)",
-			},
-			&cli.BoolFlag{
-				Name:    "temporary",
-				Aliases: []string{"temp"},
-				Usage:   "Discard guest disk changes on exit using a memory-backed layer",
-			},
-			&cli.BoolFlag{
-				Name:    "dry-run",
-				Aliases: []string{"dry"},
-				Usage:   "Print the resolved mounts, disk mode and command without starting the VM",
-			},
-		},
+		Name:            "contain",
+		Usage:           "Run tools and agents in an isolated Linux workspace",
+		UsageText:       "contain [run] [options]\ncontain create [--size 8G]",
+		Version:         version,
+		HideHelpCommand: true,
+		DefaultCommand:  "run",
 		Commands: []*cli.Command{
+			{
+				Name:                      "run",
+				Usage:                     "Run tools and agents in an isolated Linux workspace (default)",
+				UsageText:                 "contain [run] [options]",
+				DisableSliceFlagSeparator: true,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "shell",
+						Usage: "Start a shell instead of the configured command",
+					},
+					&cli.StringFlag{
+						Name:      "run",
+						Usage:     "Run `command` instead of the configured command",
+						Validator: validateShellCommand,
+					},
+					&cli.StringSliceFlag{
+						Name:  "mount",
+						Usage: "Add a session mount `HOST[:NAME][:ro|rw]` (repeatable; name defaults to the directory basename)",
+					},
+					&cli.BoolFlag{
+						Name:    "temporary",
+						Aliases: []string{"temp"},
+						Usage:   "Discard guest disk changes on exit using a memory-backed layer",
+					},
+					&cli.BoolFlag{
+						Name:    "dry-run",
+						Aliases: []string{"dry"},
+						Usage:   "Print the resolved mounts, disk mode and command without starting the VM",
+					},
+				},
+				Action: run,
+			},
 			{
 				Name:      "create",
 				Usage:     "Create an Alpine Linux guest image",
@@ -73,7 +80,6 @@ func main() {
 				Action: create,
 			},
 		},
-		Action: run,
 	}
 
 	err := cmd.Run(ctx, os.Args)

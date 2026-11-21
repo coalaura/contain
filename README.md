@@ -57,8 +57,11 @@ mounts:
 ## Usage
 
 ```sh
-contain [options]
+contain [run] [options]
+contain create [--size 8G]
 ```
+
+`run` is the default subcommand: `contain --shell` is equivalent to `contain run --shell`. The session flags below belong to `run`; `create` has its own flags. Use `contain run --help` or `contain create --help` for command-specific help and `contain --version` for version information.
 
 | Flag | Description |
 | --- | --- |
@@ -67,7 +70,7 @@ contain [options]
 | `--mount HOST[:NAME][:ro\|rw]` | Add a session-only mount under `/projects/<name>`. Repeatable; defaults to read/write and infers `NAME` from the host directory basename. |
 | `--temporary`, `--temp` | Discard guest disk changes on exit using an OpenVMM memory-backed diff layer. `disk.raw` stays untouched; writable host mounts still persist. |
 | `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, disk mode and command without starting the VM. |
-| `--help`, `--version` | Show help or version information. |
+| `--help` | Show command-specific help. |
 
 ### Examples
 
