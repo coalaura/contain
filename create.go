@@ -28,6 +28,8 @@ func create(ctx context.Context, command *cli.Command) error {
 		return fmt.Errorf("--size: %w", err)
 	}
 
+	start := time.Now()
+
 	paths, err = ResolvePaths()
 	if err != nil {
 		return err
@@ -86,8 +88,11 @@ func create(ctx context.Context, command *cli.Command) error {
 		return fmt.Errorf("publish Alpine image: %w", err)
 	}
 
-	log.Successf("Alpine image created in %s\n", directory)
+	took := time.Since(start).Round(time.Millisecond)
 
+	log.Successf("Alpine image created in %s.\n", took)
+
+	log.Subf("Image: %s\n", directory)
 	log.Subln("Login: root / alpine")
 	log.Subln("Use this directory as machine.source in your contain configuration.")
 
