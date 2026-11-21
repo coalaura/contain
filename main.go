@@ -155,7 +155,6 @@ func run(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	log.Writeln("")
 	log.Infoln("Session ended.")
 
 	return nil

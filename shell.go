@@ -13,15 +13,21 @@ import (
 	"time"
 )
 
+//go:embed shutdown_guest.sh
+var guestShutdownScript string
+
 //go:embed command_guest.sh
 var guestCommandScript string
 
 // Tabs would trigger completion in the interactive console while transmitting the script.
-var guestCommandPrefix = "sh -c " + shellQuote(strings.ReplaceAll(guestCommandScript, "\t", "")) + " contain "
+var (
+	guestShutdownCommand = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
+	guestCommandPrefix   = "sh -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
+)
 
 func (c *console) startCommand(ctx context.Context, command string) error {
 	if command == "" {
-		return nil
+		return c.runShell(ctx, guestShutdownCommand)
 	}
 
 	token := rand.Text()

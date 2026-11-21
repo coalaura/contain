@@ -52,7 +52,7 @@ mounts:
 - Mounts use `target: projects` by default, mounting at `/projects/<name>`. Use `target: config` for the guest's `$HOME/.config/<name>`. Names may contain ASCII letters, digits, `.`, `_` and `-` (excluding `.` and `..`).
 - Host paths support `~` for the host user's home, including `~\.config\opencode` on Windows. This also works with `--mount` and `machine.source`. Dry-run shows guest config destinations as `~/.config/<name>` until the guest home can be resolved at login.
 - `writable` exports existing relative subdirectories read/write beneath a `readonly: true` mount, allowing selective persistence without making the whole mount writable.
-- When `machine.command` is set, it runs inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead.
+- When `machine.command` is set, it runs inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead. Exiting the interactive shell with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`.
 
 ## Usage
 
