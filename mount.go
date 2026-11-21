@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+const (
+	guestProjectsRoot = "/projects"
+	guestConfigRoot   = "~/.config"
+)
+
 type GuestMount struct {
 	Tag        string
 	GuestPath  string
@@ -36,12 +41,16 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 			return fmt.Errorf("invalid virtio-fs tag %q", mount.Tag)
 		}
 
-		if !path.IsAbs(mount.GuestPath) || path.Clean(mount.GuestPath) != mount.GuestPath || strings.ContainsRune(mount.GuestPath, '\x00') {
+		configPath := strings.HasPrefix(mount.GuestPath, guestConfigRoot+"/")
+		if (!path.IsAbs(mount.GuestPath) && !configPath) || path.Clean(mount.GuestPath) != mount.GuestPath || strings.ContainsRune(mount.GuestPath, '\x00') {
 			return fmt.Errorf("invalid guest mount path %q", mount.GuestPath)
 		}
 
-		if mount.ParentPath == "" && index > 0 && path.Dir(mount.GuestPath) != "/projects" {
-			return fmt.Errorf("additional guest mount path %q must be a direct child of /projects", mount.GuestPath)
+		if mount.ParentPath == "" && index > 0 {
+			root := path.Dir(mount.GuestPath)
+			if root != guestProjectsRoot && root != guestConfigRoot {
+				return fmt.Errorf("additional guest mount path %q must be a direct child of /projects or ~/.config", mount.GuestPath)
+			}
 		}
 
 		if seenTags[mount.Tag] {

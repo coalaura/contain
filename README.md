@@ -43,14 +43,16 @@ mounts:
   - name: downloads
     host: /path/to/downloads
   - name: opencode
-    host: /path/to/.config/opencode
+    target: config
+    host: ~/.config/opencode
     readonly: true
     writable:
-      - context-mode/content
+      - context-mode
 ```
 
 - The current working directory is always mounted read/write at `/workspace`.
-- Configured mounts are mounted at `/projects/<name>`. Names may contain ASCII letters, digits, `.`, `_` and `-` (excluding `.` and `..`).
+- Mounts use `target: projects` by default, mounting at `/projects/<name>`. Use `target: config` for the guest's `$HOME/.config/<name>`. Names may contain ASCII letters, digits, `.`, `_` and `-` (excluding `.` and `..`).
+- Host paths support `~` for the host user's home, including `~\.config\opencode` on Windows. This also works with `--mount`. Dry-run shows guest config destinations as `~/.config/<name>` until the guest home can be resolved at login.
 - `writable` exports existing relative subdirectories read/write beneath a `readonly: true` mount, allowing selective persistence without making the whole mount writable.
 - When `machine.command` is set, it runs inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead.
 
@@ -112,4 +114,4 @@ An optional `./prepare-vm.sh` script is also included to preinstall common devel
 
 - Console communication uses a per-session named pipe on Windows and a Unix domain socket on Linux and macOS.
 - Session logs are written to `~/.local/contain/contain-*.log`.
-- Empty mountpoint directories under `/projects` are removed automatically on unmount and normal guest shutdown; `/projects` itself is preserved.
+- Empty mountpoint directories under `/projects` and the guest's `$HOME/.config` are removed automatically on unmount and normal guest shutdown; the parent directories are preserved.

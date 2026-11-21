@@ -4,7 +4,34 @@ fail() {
 }
 
 plain_directory() {
-	[ ! -L "$1" ] && { [ ! -e "$1" ] || [ -d "$1" ]; }
+	case "$1" in
+		/) return 0 ;;
+		/*) ;;
+		*) return 1 ;;
+	esac
+
+	case "$1/" in
+		*//*|*/./*|*/../*) return 1 ;;
+	esac
+
+	directory=$1
+
+	while [ "$directory" != / ]; do
+		[ ! -L "$directory" ] && { [ ! -e "$directory" ] || [ -d "$directory" ]; } || return 1
+		directory=${directory%/*}
+		[ -n "$directory" ] || directory=/
+	done
+}
+
+resolve_mount_path() {
+	resolved=$1
+
+	case "$resolved" in
+		'~/.config/'*)
+			[ -n "$HOME" ] || fail 'guest HOME is not set for config mounts' "$1"
+			resolved=${HOME%/}/.config/${resolved#'~/.config/'}
+			;;
+	esac
 }
 
 # 0: our export, 1: unmounted, 2: another/stacked mount, 3: unknown.
@@ -41,7 +68,7 @@ mount_state() {
 remove_mountpoint() {
 	# Override directories belong to the host, even when they are empty.
 	[ -z "$2" ] || return 0
-	plain_directory /projects && plain_directory "$1" || return 0
+	plain_directory "$1" || return 0
 	rmdir "$1" 2>/dev/null || :
 }
 
@@ -91,6 +118,25 @@ watch_mounts() {
 	cleanup_mounts "$@"
 }
 
+check_mount_overlap() {
+	outer=$1
+	shift 4
+
+	while [ "$#" -gt 0 ]; do
+		if [ -z "$4" ]; then
+			case "$1/" in
+				"$outer/"*) fail 'overlapping guest mount destinations' "$1" ;;
+			esac
+
+			case "$outer/" in
+				"$1/"*) fail 'overlapping guest mount destinations' "$outer" ;;
+			esac
+		fi
+
+		shift 4
+	done
+}
+
 check_mountpoints() {
 	while [ "$#" -gt 0 ]; do
 		if [ -n "$4" ]; then
@@ -98,6 +144,8 @@ check_mountpoints() {
 			continue
 		fi
 
+		# Resolving HOME can reveal overlaps that the host could not check.
+		check_mount_overlap "$@"
 		plain_directory "$1" || fail 'symbolic link or non-directory at guest mount path' "$1"
 		mount_state "$1" "$2"
 
@@ -154,6 +202,18 @@ mount_exports() {
 		shift 4
 	done
 }
+
+# Resolve guest-relative paths once so setup and cleanup use identical destinations.
+remaining=$#
+
+while [ "$remaining" -gt 0 ]; do
+	resolve_mount_path "$1"
+	destination=$resolved
+	resolve_mount_path "$4"
+	set -- "$@" "$destination" "$2" "$3" "$resolved"
+	shift 4
+	remaining=$((remaining - 4))
+done
 
 # Check top-level destinations before creating directories or exposing exports.
 plain_directory /projects || fail 'symbolic link or non-directory at guest projects path' /projects

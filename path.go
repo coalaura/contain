@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,4 +76,25 @@ func FilesExist(files ...string) error {
 	}
 
 	return nil
+}
+
+func resolveHostPath(value string) (string, error) {
+	if value == "" {
+		return "", errors.New("host directory cannot be empty")
+	}
+
+	if value[0] == '~' {
+		if len(value) > 1 && !os.IsPathSeparator(value[1]) {
+			return "", errors.New("home paths must use ~ alone or followed by a path separator")
+		}
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve host home: %w", err)
+		}
+
+		value = filepath.Join(home, value[1:])
+	}
+
+	return filepath.Abs(value)
 }

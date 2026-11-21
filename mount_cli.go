@@ -48,7 +48,7 @@ func parseMount(value string) (MountConfig, error) {
 		return MountConfig{}, errors.New("host directory cannot be empty")
 	}
 
-	host, err := filepath.Abs(mount.Host)
+	host, err := resolveHostPath(mount.Host)
 	if err != nil {
 		return MountConfig{}, fmt.Errorf("resolve host directory: %w", err)
 	}

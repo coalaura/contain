@@ -26,6 +26,7 @@ type MachineConfig struct {
 
 type MountConfig struct {
 	Name     string   `yaml:"name"`
+	Target   string   `yaml:"target,omitempty"`
 	Host     string   `yaml:"host"`
 	Readonly bool     `yaml:"readonly"`
 	Writable []string `yaml:"writable,omitempty"`
@@ -116,13 +117,28 @@ func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]Gue
 				return nil, fmt.Errorf("mounts[%d].writable requires readonly: true", number)
 			}
 
+			root := guestProjectsRoot
+
+			switch mount.Target {
+			case "", "projects":
+			case "config":
+				root = guestConfigRoot
+			default:
+				return nil, fmt.Errorf("mounts[%d].target must be projects or config, got %q", number, mount.Target)
+			}
+
+			host, err := resolveHostPath(mount.Host)
+			if err != nil {
+				return nil, fmt.Errorf("mounts[%d].host: %w", number, err)
+			}
+
 			tag := "project" + strconv.Itoa(number)
-			guestPath := "/projects/" + mount.Name
+			guestPath := root + "/" + mount.Name
 
 			mounts = append(mounts, GuestMount{
 				Tag:       tag,
 				GuestPath: guestPath,
-				HostPath:  mount.Host,
+				HostPath:  host,
 				Readonly:  mount.Readonly,
 			})
 
@@ -135,7 +151,7 @@ func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]Gue
 				mounts = append(mounts, GuestMount{
 					Tag:        tag + "_write" + strconv.Itoa(overrideIndex),
 					GuestPath:  guestPath + "/" + relative,
-					HostPath:   filepath.Join(mount.Host, local),
+					HostPath:   filepath.Join(host, local),
 					ParentPath: guestPath,
 				})
 			}
@@ -163,7 +179,7 @@ func (c *Config) Store() error {
 			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
 
 			"$.source.alpine": {yaml.HeadComment(" path to the alpine build directory")},
-			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name (under /projects), host and optional readonly (default false)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
+			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name, host (supports ~) and optional readonly (default false)"), yaml.HeadComment(" target: projects (default, /projects) or config (guest $HOME/.config)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
 		}
 	)
 
