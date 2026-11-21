@@ -41,13 +41,16 @@ func main() {
 				DisableSliceFlagSeparator: true,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
+						Name:  "plain",
+						Usage: "Start a shell at / without mounts, snapshots or a startup command",
+					},
+					&cli.BoolFlag{
 						Name:  "shell",
 						Usage: "Start a shell instead of the configured command",
 					},
 					&cli.StringFlag{
-						Name:      "run",
-						Usage:     "Run `command` instead of the configured command",
-						Validator: validateShellCommand,
+						Name:  "run",
+						Usage: "Run `command` instead of the configured command",
 					},
 					&cli.StringSliceFlag{
 						Name:  "mount",
@@ -101,21 +104,12 @@ func run(ctx context.Context, command *cli.Command) error {
 		return fmt.Errorf("unexpected argument %q", command.Args().First())
 	}
 
-	if command.Bool("shell") && command.IsSet("run") {
+	plain := command.Bool("plain")
+	if !plain && command.Bool("shell") && command.IsSet("run") {
 		return errors.New("--shell and --run cannot be used together")
 	}
 
 	var err error
-
-	mountValues := command.StringSlice("mount")
-	additionalMounts := make([]MountConfig, len(mountValues))
-
-	for index, value := range mountValues {
-		additionalMounts[index], err = parseMount(value)
-		if err != nil {
-			return fmt.Errorf("--mount %q: %w", value, err)
-		}
-	}
 
 	log.Stepln("Resolving paths...")
 
@@ -131,22 +125,50 @@ func run(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	mounts, err := config.GuestMounts(paths.WorkingDirectory, additionalMounts...)
-	if err != nil {
-		return err
-	}
+	var (
+		mounts         []GuestMount
+		snapshots      []GuestSnapshot
+		startupCommand string
+	)
 
-	snapshots, err := config.GuestSnapshots(mounts)
-	if err != nil {
-		return err
-	}
+	if !plain {
+		err = validateShellCommand(config.Machine.Command)
+		if err != nil {
+			return fmt.Errorf("machine.command %w", err)
+		}
 
-	startupCommand := config.Machine.Command
+		mountValues := command.StringSlice("mount")
+		additionalMounts := make([]MountConfig, len(mountValues))
 
-	if command.IsSet("run") {
-		startupCommand = command.String("run")
-	} else if command.Bool("shell") {
-		startupCommand = ""
+		for index, value := range mountValues {
+			additionalMounts[index], err = parseMount(value)
+			if err != nil {
+				return fmt.Errorf("--mount %q: %w", value, err)
+			}
+		}
+
+		mounts, err = config.GuestMounts(paths.WorkingDirectory, additionalMounts...)
+		if err != nil {
+			return err
+		}
+
+		snapshots, err = config.GuestSnapshots(mounts)
+		if err != nil {
+			return err
+		}
+
+		startupCommand = config.Machine.Command
+
+		if command.IsSet("run") {
+			startupCommand = command.String("run")
+		} else if command.Bool("shell") {
+			startupCommand = ""
+		}
+
+		err = validateShellCommand(startupCommand)
+		if err != nil {
+			return fmt.Errorf("startup command %w", err)
+		}
 	}
 
 	temporary := command.Bool("temporary")
@@ -172,6 +194,13 @@ func printDryRun(output io.Writer, mounts []GuestMount, snapshots []GuestSnapsho
 	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tHOST")
 	if err != nil {
 		return err
+	}
+
+	if len(mounts) == 0 {
+		_, err = fmt.Fprintln(writer, "  (none)")
+		if err != nil {
+			return err
+		}
 	}
 
 	for index := range mounts {
@@ -224,6 +253,12 @@ func printDryRun(output io.Writer, mounts []GuestMount, snapshots []GuestSnapsho
 		diskMode = "temporary (memory-backed; changes discarded on exit)"
 	}
 
-	_, err = fmt.Fprintf(output, "\nDisk:\n  %s\n\nCommand (in /workspace):\n  %s\n", diskMode, command)
+	directory := "/"
+
+	if len(mounts) > 0 {
+		directory = "/workspace"
+	}
+
+	_, err = fmt.Fprintf(output, "\nDisk:\n  %s\n\nCommand (in %s):\n  %s\n", diskMode, directory, command)
 	return err
 }

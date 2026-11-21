@@ -288,14 +288,20 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return fmt.Errorf("guest login must have root privileges: %w", err)
 	}
 
-	err = mountGuestFilesystems(ctx, con, mounts)
-	if err != nil {
-		return err
+	directory := "/"
+
+	if len(mounts) > 0 {
+		err = mountGuestFilesystems(ctx, con, mounts)
+		if err != nil {
+			return err
+		}
+
+		directory = "/workspace"
 	}
 
-	err = con.runShell(ctx, "cd /workspace")
+	err = con.runShell(ctx, "cd "+directory)
 	if err != nil {
-		return fmt.Errorf("change guest directory to /workspace: %w", err)
+		return fmt.Errorf("change guest directory to %s: %w", directory, err)
 	}
 
 	return nil

@@ -197,7 +197,11 @@ func openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory stri
 		return nil, err
 	}
 
-	cmdline := "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4 contain.mounts=1"
+	cmdline := "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4"
+
+	if len(mounts) > 0 {
+		cmdline += " contain.mounts=1"
+	}
 
 	if strings.ContainsAny(resizeAddress, ",=\x00") {
 		return nil, fmt.Errorf("OpenVMM cannot represent resize channel path %q: commas, equals signs and NUL are unsupported", resizeAddress)

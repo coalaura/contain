@@ -73,6 +73,7 @@ contain create [--size 8G] [--tools]
 | Flag | Description |
 | --- | --- |
 | `--shell` | Start an interactive shell instead of the configured command. |
+| `--plain` | Start an interactive shell at `/`, skipping all workspace, configured and CLI mounts, snapshots, and startup commands. Takes precedence over `--shell`, `--run` and `--mount`; can be combined with `--temporary` and `--dry-run`. |
 | `--run COMMAND` | Run a single-line shell command instead of the configured command. Cannot be combined with `--shell`. |
 | `--mount HOST[:NAME][:ro\|rw]` | Add a session-only mount under `/projects/<name>`. Repeatable; defaults to read/write and infers `NAME` from the host directory basename. |
 | `--temporary`, `--temp` | Discard guest disk changes on exit using an OpenVMM memory-backed diff layer. `disk.raw` stays untouched; writable host mounts still persist. |
@@ -87,6 +88,9 @@ contain
 
 # Skip the configured command and open a shell
 contain --shell
+
+# Open a plain shell at / without host mounts or snapshots
+contain --plain
 
 # Override the startup command for one session
 contain --run "pytest"

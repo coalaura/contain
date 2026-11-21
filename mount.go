@@ -25,7 +25,7 @@ type GuestMount struct {
 
 func ValidateGuestMounts(mounts []GuestMount) error {
 	if len(mounts) == 0 {
-		return errors.New("no guest mounts configured; need a workspace export")
+		return nil
 	}
 
 	if mounts[0].Tag != "workspace" || mounts[0].GuestPath != "/workspace" {

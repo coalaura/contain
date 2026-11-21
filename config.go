@@ -64,11 +64,6 @@ func (c *Config) Init() error {
 		return errors.New("machine.memory has to be 1G or more")
 	}
 
-	err := validateShellCommand(c.Machine.Command)
-	if err != nil {
-		return fmt.Errorf("machine.command %w", err)
-	}
-
 	// validate guest image files
 	directory, err := resolveHostPath(c.Machine.Source)
 	if err != nil {
