@@ -58,7 +58,7 @@ mounts:
 
 ```sh
 contain [run] [options]
-contain create [--size 8G]
+contain create [--size 8G] [--tools]
 ```
 
 `run` is the default subcommand: `contain --shell` is equivalent to `contain run --shell`. The session flags below belong to `run`; `create` has its own flags. Use `contain run --help` or `contain create --help` for command-specific help and `contain --version` for version information.
@@ -104,9 +104,12 @@ Create a bootable x86_64 Alpine Linux image with OpenVMM on Windows or Linux:
 ```sh
 contain create             # 8 GiB disk
 contain create --size 16G  # custom disk size
+contain create --tools     # include development tools and dependencies
 ```
 
 This downloads the latest stable Alpine netboot kernel and initramfs, formats a raw ext4 disk in Go and installs `alpine-base` and `linux-virt` inside a RAM-booted VM. The installer downloads Alpine's matching module archive and exports the installed boot files through virtio-fs. Internet access is required on the host and in the guest. No host-side Linux formatting or mounting tools are needed. Disk sizes use binary units and must be at least 512 MiB.
+
+With `--tools`, an extra step inside Alpine installs common packages including Python, C/C++ build tools, Git and shell utilities. It installs the latest [Tap](https://github.com/coalaura/tap), then uses `tap get` for Go, PACE, Zig, Bun's musl build, builder, vet and ffwebp's full build. Their binary directories are added to the guest's login `PATH`.
 
 The completed `disk.raw`, `vmlinuz-virt` and `initramfs-virt` are stored in `~/.local/contain/images/alpine/`, the default `machine.source`, with login `root` / `alpine`. Existing image directories are refused. If you already have a configuration, set its `machine.source` to this directory. Installer output is captured in `~/.local/contain/contain-create-*.log`.
 

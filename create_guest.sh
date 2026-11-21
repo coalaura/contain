@@ -67,6 +67,10 @@ test -s /boot/vmlinuz-virt
 test -s /boot/initramfs-virt
 CONFIGURE
 
+if [ -f /contain-tools.sh ]; then
+	chroot /mnt /bin/sh -eu < /contain-tools.sh
+fi
+
 mkdir -p /export
 modprobe virtiofs
 mount -t virtiofs contain_export /export

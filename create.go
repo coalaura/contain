@@ -61,7 +61,7 @@ func create(ctx context.Context, command *cli.Command) error {
 
 	log.Subf("Installer log: %s\n", output.Name())
 
-	err = buildAlpine(ctx, staging, size, output)
+	err = buildAlpine(ctx, staging, size, command.Bool("tools"), output)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
@@ -99,7 +99,7 @@ func create(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func buildAlpine(ctx context.Context, directory string, size int64, output *os.File) error {
+func buildAlpine(ctx context.Context, directory string, size int64, tools bool, output *os.File) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 
 	log.Stepln("Resolving latest stable Alpine release...")
@@ -141,12 +141,16 @@ func buildAlpine(ctx context.Context, directory string, size int64, output *os.F
 
 	marker := "__CONTAIN_INSTALL_" + rand.Text() + ":"
 
-	err = appendInstaller(machine.initrd, baseURL, marker)
+	err = appendInstaller(machine.initrd, baseURL, marker, tools)
 	if err != nil {
 		return fmt.Errorf("prepare installer initramfs: %w", err)
 	}
 
 	log.Stepln("Installing Alpine in OpenVMM...")
+
+	if tools {
+		log.Subln("Including common development tools and dependencies.")
+	}
 
 	err = installAlpine(ctx, &machine, baseURL, marker, output)
 	if err != nil {

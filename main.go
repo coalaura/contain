@@ -29,7 +29,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:            "contain",
 		Usage:           "Run tools and agents in an isolated Linux workspace",
-		UsageText:       "contain [run] [options]\ncontain create [--size 8G]",
+		UsageText:       "contain [run] [options]\ncontain create [--size 8G] [--tools]",
 		Version:         version,
 		HideHelpCommand: true,
 		DefaultCommand:  "run",
@@ -69,12 +69,16 @@ func main() {
 			{
 				Name:      "create",
 				Usage:     "Create an Alpine Linux guest image",
-				UsageText: "contain create [--size 8G]",
+				UsageText: "contain create [--size 8G] [--tools]",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:  "size",
 						Usage: "Disk size in bytes or with a K, M, G or T suffix (binary units; minimum 512M)",
 						Value: "8G",
+					},
+					&cli.BoolFlag{
+						Name:  "tools",
+						Usage: "Install common development tools and dependencies in the image",
 					},
 				},
 				Action: create,

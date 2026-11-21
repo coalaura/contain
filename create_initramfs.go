@@ -21,8 +21,11 @@ type installerFile struct {
 //go:embed create_guest.sh
 var installerScript string
 
-func appendInstaller(path, repository, marker string) error {
-	overlay, err := installerOverlay(repository, marker)
+//go:embed create_tools.sh
+var toolsScript string
+
+func appendInstaller(path, repository, marker string, tools bool) error {
+	overlay, err := installerOverlay(repository, marker, tools)
 	if err != nil {
 		return err
 	}
@@ -56,7 +59,7 @@ func appendInstaller(path, repository, marker string) error {
 	return output.Close()
 }
 
-func installerOverlay(repository, marker string) ([]byte, error) {
+func installerOverlay(repository, marker string, tools bool) ([]byte, error) {
 	var buffer bytes.Buffer
 
 	compressed := gzip.NewWriter(&buffer)
@@ -66,9 +69,14 @@ func installerOverlay(repository, marker string) ([]byte, error) {
 	script := strings.ReplaceAll(installerScript, "\r\n", "\n")
 	script = strings.ReplaceAll(script, "@STATUS_MARKER@", marker)
 
-	files := [...]installerFile{
-		{name: "contain-install.sh", mode: 0755, body: script},
-		{name: "etc/apk/repositories", mode: 0644, body: repository + "/main\n" + repository + "/community\n"},
+	files := make([]installerFile, 0, 3)
+	files = append(files, installerFile{name: "contain-install.sh", mode: 0755, body: script})
+	files = append(files, installerFile{name: "etc/apk/repositories", mode: 0644, body: repository + "/main\n" + repository + "/community\n"})
+
+	if tools {
+		body := strings.ReplaceAll(toolsScript, "\r\n", "\n")
+
+		files = append(files, installerFile{name: "contain-tools.sh", mode: 0755, body: body})
 	}
 
 	for _, entry := range files {
