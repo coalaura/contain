@@ -148,6 +148,20 @@ apk update
 apk add --no-cache alpine-base linux-virt bash
 sed -i 's|^\(root:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1/bin/bash|' /etc/passwd
 
+cat > /root/.bashrc <<'BASHRC'
+alias ls='ls --color=auto'
+alias ll='ls -l'
+alias la='ls -la'
+alias ..='cd ..'
+alias ...='cd ../..'
+
+shopt -s checkwinsize
+BASHRC
+
+cat > /root/.bash_profile <<'BASH_PROFILE'
+. "$HOME/.bashrc"
+BASH_PROFILE
+
 # Essential OpenRC services for a disk-installed VM.
 add_service() {
     service="$1"

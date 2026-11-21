@@ -64,6 +64,20 @@ printf '\nhvc0::respawn:/sbin/getty 115200 hvc0\n' >> /etc/inittab
 printf 'root:alpine\n' | chpasswd
 sed -i 's|^\(root:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1/bin/bash|' /etc/passwd
 
+cat > /root/.bashrc <<'BASHRC'
+alias ls='ls --color=auto'
+alias ll='ls -l'
+alias la='ls -la'
+alias ..='cd ..'
+alias ...='cd ../..'
+
+shopt -s checkwinsize
+BASHRC
+
+cat > /root/.bash_profile <<'BASH_PROFILE'
+. "$HOME/.bashrc"
+BASH_PROFILE
+
 test -s /boot/vmlinuz-virt
 test -s /boot/initramfs-virt
 CONFIGURE
