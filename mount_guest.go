@@ -27,7 +27,7 @@ func guestMountCommand(mounts []GuestMount) string {
 
 	for index := range mounts {
 		mount := &mounts[index]
-		size += len(mount.GuestPath) + 3*strings.Count(mount.GuestPath, "'") + len(mount.Tag) + 11
+		size += len(mount.GuestPath) + len(mount.ParentPath) + 3*(strings.Count(mount.GuestPath, "'")+strings.Count(mount.ParentPath, "'")) + len(mount.Tag) + 14
 	}
 
 	var command strings.Builder
@@ -35,7 +35,8 @@ func guestMountCommand(mounts []GuestMount) string {
 	command.Grow(size)
 	command.WriteString(guestMountCommandPrefix)
 
-	for index := range mounts {
+	// Children precede their parents for rollback and shutdown cleanup.
+	for index := len(mounts) - 1; index >= 0; index-- {
 		mount := &mounts[index]
 
 		// Keep each mount on its own input line to stay within terminal line limits.
@@ -49,6 +50,9 @@ func guestMountCommand(mounts []GuestMount) string {
 		} else {
 			command.WriteString(" rw")
 		}
+
+		command.WriteByte(' ')
+		command.WriteString(shellQuote(mount.ParentPath))
 	}
 
 	return command.String()

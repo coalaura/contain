@@ -25,9 +25,10 @@ type MachineConfig struct {
 }
 
 type MountConfig struct {
-	Name     string `yaml:"name"`
-	Host     string `yaml:"host"`
-	Readonly bool   `yaml:"readonly"`
+	Name     string   `yaml:"name"`
+	Host     string   `yaml:"host"`
+	Readonly bool     `yaml:"readonly"`
+	Writable []string `yaml:"writable,omitempty"`
 }
 
 type SourceConfig struct {
@@ -84,7 +85,16 @@ func (c *Config) Init() error {
 }
 
 func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]GuestMount, error) {
-	mounts := make([]GuestMount, 1, len(c.Mounts)+len(additional)+1)
+	groups := [2][]MountConfig{c.Mounts, additional}
+	count := len(c.Mounts) + len(additional) + 1
+
+	for _, group := range groups {
+		for index := range group {
+			count += len(group[index].Writable)
+		}
+	}
+
+	mounts := make([]GuestMount, 1, count)
 
 	mounts[0] = GuestMount{
 		Tag:       "workspace",
@@ -92,23 +102,45 @@ func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]Gue
 		HostPath:  workspace,
 	}
 
-	groups := [2][]MountConfig{c.Mounts, additional}
+	number := 0
 
 	for _, group := range groups {
 		for index := range group {
 			mount := &group[index]
-			number := len(mounts) - 1
 
 			if !validMountName(mount.Name) {
 				return nil, fmt.Errorf("mounts[%d].name must contain only ASCII letters, digits, dots, underscores or hyphens, and cannot be empty, '.' or '..'", number)
 			}
 
+			if len(mount.Writable) > 0 && !mount.Readonly {
+				return nil, fmt.Errorf("mounts[%d].writable requires readonly: true", number)
+			}
+
+			tag := "project" + strconv.Itoa(number)
+			guestPath := "/projects/" + mount.Name
+
 			mounts = append(mounts, GuestMount{
-				Tag:       "project" + strconv.Itoa(number),
-				GuestPath: "/projects/" + mount.Name,
+				Tag:       tag,
+				GuestPath: guestPath,
 				HostPath:  mount.Host,
 				Readonly:  mount.Readonly,
 			})
+
+			for overrideIndex, relative := range mount.Writable {
+				local, err := localWritablePath(relative)
+				if err != nil {
+					return nil, fmt.Errorf("mounts[%d].writable[%d]: %w", number, overrideIndex, err)
+				}
+
+				mounts = append(mounts, GuestMount{
+					Tag:        tag + "_write" + strconv.Itoa(overrideIndex),
+					GuestPath:  guestPath + "/" + relative,
+					HostPath:   filepath.Join(mount.Host, local),
+					ParentPath: guestPath,
+				})
+			}
+
+			number++
 		}
 	}
 
@@ -131,7 +163,7 @@ func (c *Config) Store() error {
 			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
 
 			"$.source.alpine": {yaml.HeadComment(" path to the alpine build directory")},
-			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name (under /projects), host and optional readonly (default false)")},
+			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name (under /projects), host and optional readonly (default false)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
 		}
 	)
 

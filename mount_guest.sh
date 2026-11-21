@@ -11,6 +11,7 @@ plain_directory() {
 mount_state() {
 	[ -r /proc/self/mountinfo ] || return 3
 	state=1
+	submounts=0
 
 	while IFS=' ' read -r mount_id parent_id device root mounted_path rest; do
 		case "$mounted_path" in
@@ -19,6 +20,10 @@ mount_state() {
 				mounted_path=$(printf '%b/' "$mounted_path")
 				mounted_path=${mounted_path%/}
 				;;
+		esac
+
+		case "$mounted_path" in
+			"$1"/*) submounts=1 ;;
 		esac
 
 		[ "$mounted_path" = "$1" ] || continue
@@ -34,6 +39,8 @@ mount_state() {
 }
 
 remove_mountpoint() {
+	# Override directories belong to the host, even when they are empty.
+	[ -z "$2" ] || return 0
 	plain_directory /projects && plain_directory "$1" || return 0
 	rmdir "$1" 2>/dev/null || :
 }
@@ -43,11 +50,16 @@ cleanup_mounts() {
 		mount_state "$1" "$2"
 
 		case "$?" in
-			0) umount -l "$1" && remove_mountpoint "$1" ;;
-			1) remove_mountpoint "$1" ;;
+			0)
+				# Leave parents alone if a foreign or busy child mount remains.
+				if [ "$submounts" -eq 0 ]; then
+					umount -l "$1" && remove_mountpoint "$1" "$4"
+				fi
+				;;
+			1) remove_mountpoint "$1" "$4" ;;
 		esac
 
-		shift 3
+		shift 4
 	done
 }
 
@@ -63,13 +75,13 @@ watch_mounts() {
 			mount_state "$1" "$2"
 
 			if [ "$?" -eq 1 ]; then
-				remove_mountpoint "$1"
+				remove_mountpoint "$1" "$4"
 			else
-				set -- "$@" "$1" "$2" "$3"
+				set -- "$@" "$1" "$2" "$3" "$4"
 			fi
 
-			shift 3
-			remaining=$((remaining - 3))
+			shift 4
+			remaining=$((remaining - 4))
 		done
 
 		[ "$#" -eq 0 ] || [ "$stopping" -eq 1 ] || sleep 1
@@ -81,6 +93,11 @@ watch_mounts() {
 
 check_mountpoints() {
 	while [ "$#" -gt 0 ]; do
+		if [ -n "$4" ]; then
+			shift 4
+			continue
+		fi
+
 		plain_directory "$1" || fail 'symbolic link or non-directory at guest mount path' "$1"
 		mount_state "$1" "$2"
 
@@ -95,11 +112,50 @@ check_mountpoints() {
 			fi
 		done
 
-		shift 3
+		shift 4
 	done
 }
 
-# Check every destination before creating directories or exposing any export.
+check_overrides() {
+	while [ "$#" -gt 0 ]; do
+		if [ -n "$4" ]; then
+			current=$1
+
+			while :; do
+				[ ! -L "$current" ] && [ -d "$current" ] || fail 'writable guest path is missing, symbolic or not a directory' "$current"
+				[ "$current" != "$4" ] || break
+				current=${current%/*}
+			done
+
+			mount_state "$1" "$2"
+
+			case "$?" in
+				0|2) fail 'writable guest destination is already mounted' "$1" ;;
+				3) fail 'cannot inspect guest mounts' /proc/self/mountinfo ;;
+			esac
+		fi
+
+		shift 4
+	done
+}
+
+mount_exports() {
+	overrides=$1
+	shift
+
+	while [ "$#" -gt 0 ]; do
+		if [ "$overrides" = no ] && [ -z "$4" ]; then
+			mkdir -p "$1" || fail 'cannot create guest mount destination' "$1"
+			mount -t virtiofs -o "$3" "$2" "$1" || fail 'cannot mount virtio-fs export' "$1"
+		elif [ "$overrides" = yes ] && [ -n "$4" ]; then
+			mount -t virtiofs -o rw "$2" "$1" || fail 'cannot mount writable export' "$1"
+		fi
+
+		shift 4
+	done
+}
+
+# Check top-level destinations before creating directories or exposing exports.
 plain_directory /projects || fail 'symbolic link or non-directory at guest projects path' /projects
 check_mountpoints "$@"
 trap 'cleanup_mounts "$@"' EXIT
@@ -110,11 +166,9 @@ trap 'exit 1' HUP INT TERM
 	trap - EXIT HUP INT TERM
 	mkdir -p /projects || fail 'cannot create guest projects directory' /projects
 
-	while [ "$#" -gt 0 ]; do
-		mkdir -p "$1" || fail 'cannot create guest mount destination' "$1"
-		mount -t virtiofs -o "$3" "$2" "$1" || fail 'cannot mount virtio-fs export' "$1"
-		shift 3
-	done
+	mount_exports no "$@"
+	check_overrides "$@"
+	mount_exports yes "$@"
 ) || exit 1
 
 # The guest shutdown signal reaches this process before filesystems go read-only.
