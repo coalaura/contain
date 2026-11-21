@@ -29,7 +29,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:                      "contain",
 		Usage:                     "Run tools and agents in an isolated Linux workspace",
-		UsageText:                 "contain [options]",
+		UsageText:                 "contain [options]\ncontain create [--size 8G]",
 		Version:                   version,
 		HideHelpCommand:           true,
 		DisableSliceFlagSeparator: true,
@@ -56,6 +56,21 @@ func main() {
 				Name:    "dry-run",
 				Aliases: []string{"dry"},
 				Usage:   "Print the resolved mounts, disk mode and command without starting the VM",
+			},
+		},
+		Commands: []*cli.Command{
+			{
+				Name:      "create",
+				Usage:     "Create an Alpine Linux guest image",
+				UsageText: "contain create [--size 8G]",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "size",
+						Usage: "Disk size in bytes or with a K, M, G or T suffix (binary units; minimum 512M)",
+						Value: "8G",
+					},
+				},
+				Action: create,
 			},
 		},
 		Action: run,

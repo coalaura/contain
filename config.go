@@ -195,7 +195,7 @@ func (c *Config) Store() error {
 func DefaultConfig() *Config {
 	return &Config{
 		Machine: MachineConfig{
-			Source:     "/path/to/guest/image",
+			Source:     filepath.Join(paths.DataDirectory, "images", "alpine"),
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
 			Login: ConfigLogin{

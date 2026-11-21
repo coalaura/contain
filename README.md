@@ -29,7 +29,7 @@ On first run, `contain` writes a default configuration file to `~/.config/contai
 
 ```yaml
 machine:
-  source: /path/to/guest/image
+  source: ~/.local/contain/images/alpine
   processors: 4
   memory: 4 # GiB (1-32)
   login:
@@ -96,7 +96,18 @@ contain --dry --temp --mount ./datasets:ro
 
 ## Guest Image
 
-The `alpine/` directory includes helper scripts for building a bootable x86_64 Alpine Linux image on a Linux host:
+Create a bootable x86_64 Alpine Linux image with OpenVMM on Windows or Linux:
+
+```sh
+contain create             # 8 GiB disk
+contain create --size 16G  # custom disk size
+```
+
+This downloads the latest stable Alpine netboot kernel and initramfs, formats a raw ext4 disk in Go and installs `alpine-base` and `linux-virt` inside a RAM-booted VM. The installer downloads Alpine's matching module archive and exports the installed boot files through virtio-fs. Internet access is required on the host and in the guest. No host-side Linux formatting or mounting tools are needed. Disk sizes use binary units and must be at least 512 MiB.
+
+The completed `disk.raw`, `vmlinuz-virt` and `initramfs-virt` are stored in `~/.local/contain/images/alpine/`, the default `machine.source`, with login `root` / `alpine`. Existing image directories are refused. If you already have a configuration, set its `machine.source` to this directory. Installer output is captured in `~/.local/contain/contain-create-*.log`.
+
+The `alpine/` directory also includes helper scripts for building an image on a Linux host:
 
 ```sh
 cd alpine
