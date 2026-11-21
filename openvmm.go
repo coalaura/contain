@@ -145,15 +145,15 @@ func openVMMArgs(address string, mounts []GuestMount, temporary bool) ([]string,
 
 	// exec.Command quotes OS arguments. OpenVMM's compound values have no
 	// escaping syntax, so reject delimiters that would change their meaning.
-	if strings.ContainsAny(config.Source.disk, ",;\x00") || !balancedBrackets(config.Source.disk) {
-		return nil, fmt.Errorf("OpenVMM cannot represent disk path %q: commas, semicolons, NUL and unbalanced brackets are unsupported", config.Source.disk)
+	if strings.ContainsAny(config.Machine.disk, ",;\x00") || !balancedBrackets(config.Machine.disk) {
+		return nil, fmt.Errorf("OpenVMM cannot represent disk path %q: commas, semicolons, NUL and unbalanced brackets are unsupported", config.Machine.disk)
 	}
 
 	if strings.ContainsAny(address, ",=\x00") {
 		return nil, fmt.Errorf("OpenVMM cannot represent console path %q: commas, equals signs and NUL are unsupported", address)
 	}
 
-	disk := "file:" + config.Source.disk
+	disk := "file:" + config.Machine.disk
 
 	if temporary {
 		disk = "memdiff:" + disk
@@ -163,8 +163,8 @@ func openVMMArgs(address string, mounts []GuestMount, temporary bool) ([]string,
 		"--hv",
 		"--processors", strconv.Itoa(config.Machine.Processors),
 		"--memory", fmt.Sprintf("%dG", config.Machine.Memory),
-		"--kernel", config.Source.kernel,
-		"--initrd", config.Source.initrd,
+		"--kernel", config.Machine.kernel,
+		"--initrd", config.Machine.initrd,
 		"--virtio-blk", disk + ",pcie_port=disk",
 		"--cmdline", "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4 contain.mounts=1",
 		"--pcie-root-complex", "rc0",

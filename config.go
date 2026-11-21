@@ -18,6 +18,11 @@ type ConfigLogin struct {
 }
 
 type MachineConfig struct {
+	disk   string
+	initrd string
+	kernel string
+
+	Source     string      `yaml:"source"`
 	Processors int         `yaml:"processors"`
 	Memory     int         `yaml:"memory"`
 	Login      ConfigLogin `yaml:"login"`
@@ -32,17 +37,8 @@ type MountConfig struct {
 	Writable []string `yaml:"writable,omitempty"`
 }
 
-type SourceConfig struct {
-	disk   string
-	initrd string
-	kernel string
-
-	Alpine string `yaml:"alpine"`
-}
-
 type Config struct {
 	Machine MachineConfig `yaml:"machine"`
-	Source  SourceConfig  `yaml:"source"`
 	Mounts  []MountConfig `yaml:"mounts"`
 }
 
@@ -68,19 +64,24 @@ func (c *Config) Init() error {
 		return fmt.Errorf("machine.command %w", err)
 	}
 
-	// validate alpine build files
-	disk := filepath.Join(c.Source.Alpine, "disk.raw")
-	initrd := filepath.Join(c.Source.Alpine, "initramfs-virt")
-	kernel := filepath.Join(c.Source.Alpine, "vmlinuz-virt")
+	// validate guest image files
+	directory, err := resolveHostPath(c.Machine.Source)
+	if err != nil {
+		return fmt.Errorf("machine.source: %w", err)
+	}
+
+	disk := filepath.Join(directory, "disk.raw")
+	initrd := filepath.Join(directory, "initramfs-virt")
+	kernel := filepath.Join(directory, "vmlinuz-virt")
 
 	err = FilesExist(disk, initrd, kernel)
 	if err != nil {
 		return err
 	}
 
-	c.Source.disk = disk
-	c.Source.initrd = initrd
-	c.Source.kernel = kernel
+	c.Machine.disk = disk
+	c.Machine.initrd = initrd
+	c.Machine.kernel = kernel
 
 	return nil
 }
@@ -172,14 +173,12 @@ func (c *Config) Store() error {
 	var (
 		buffer   bytes.Buffer
 		comments = yaml.CommentMap{
-			"$.source": {yaml.HeadComment("")},
+			"$.mounts": {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name, host (supports ~) and optional readonly (default false)"), yaml.HeadComment(" target: projects (default, /projects) or config (guest $HOME/.config)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
 
+			"$.machine.source":     {yaml.HeadComment(" path to the guest image directory (supports ~)")},
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
 			"$.machine.memory":     {yaml.HeadComment(" amount of memory to assign to the vm (in GiB)")},
 			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
-
-			"$.source.alpine": {yaml.HeadComment(" path to the alpine build directory")},
-			"$.mounts":        {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name, host (supports ~) and optional readonly (default false)"), yaml.HeadComment(" target: projects (default, /projects) or config (guest $HOME/.config)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
 		}
 	)
 
@@ -196,15 +195,13 @@ func (c *Config) Store() error {
 func DefaultConfig() *Config {
 	return &Config{
 		Machine: MachineConfig{
+			Source:     "/path/to/guest/image",
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
 			Login: ConfigLogin{
 				Username: "root",
 				Password: "alpine",
 			},
-		},
-		Source: SourceConfig{
-			Alpine: "/path/to/alpine/build",
 		},
 		Mounts: []MountConfig{},
 	}
