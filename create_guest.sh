@@ -32,7 +32,7 @@ mount --bind /dev /mnt/dev
 mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
 
-apk --root /mnt --initdb --no-cache add alpine-base linux-virt
+apk --root /mnt --initdb --no-cache add alpine-base linux-virt bash
 
 chroot /mnt /bin/sh -eu <<'CONFIGURE'
 for service in devfs dmesg mdev hwdrivers; do
@@ -62,6 +62,7 @@ NETWORK
 printf '/dev/vda / ext4 rw,relatime 0 0\n' > /etc/fstab
 printf '\nhvc0::respawn:/sbin/getty 115200 hvc0\n' >> /etc/inittab
 printf 'root:alpine\n' | chpasswd
+sed -i 's|^\(root:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1/bin/bash|' /etc/passwd
 
 test -s /boot/vmlinuz-virt
 test -s /boot/initramfs-virt
