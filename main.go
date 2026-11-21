@@ -48,9 +48,14 @@ func main() {
 				Usage: "Add a session mount `HOST[:NAME][:ro|rw]` (repeatable; name defaults to the directory basename)",
 			},
 			&cli.BoolFlag{
+				Name:    "temporary",
+				Aliases: []string{"temp"},
+				Usage:   "Discard guest disk changes on exit using a memory-backed layer",
+			},
+			&cli.BoolFlag{
 				Name:    "dry-run",
 				Aliases: []string{"dry"},
-				Usage:   "Print the resolved mounts and command without starting the VM",
+				Usage:   "Print the resolved mounts, disk mode and command without starting the VM",
 			},
 		},
 		Action: run,
@@ -114,11 +119,13 @@ func run(ctx context.Context, command *cli.Command) error {
 		startupCommand = ""
 	}
 
+	temporary := command.Bool("temporary")
+
 	if command.Bool("dry-run") {
-		return printDryRun(command.Writer, mounts, startupCommand)
+		return printDryRun(command.Writer, mounts, startupCommand, temporary)
 	}
 
-	err = RunOpenVMM(ctx, mounts, startupCommand)
+	err = RunOpenVMM(ctx, mounts, startupCommand, temporary)
 	if err != nil {
 		return err
 	}
@@ -129,7 +136,7 @@ func run(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func printDryRun(output io.Writer, mounts []GuestMount, command string) error {
+func printDryRun(output io.Writer, mounts []GuestMount, command string, temporary bool) error {
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 
 	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tHOST")
@@ -160,6 +167,12 @@ func printDryRun(output io.Writer, mounts []GuestMount, command string) error {
 		command = "(interactive shell)"
 	}
 
-	_, err = fmt.Fprintf(output, "\nCommand (in /workspace):\n  %s\n", command)
+	diskMode := "persistent"
+
+	if temporary {
+		diskMode = "temporary (memory-backed; changes discarded on exit)"
+	}
+
+	_, err = fmt.Fprintf(output, "\nDisk:\n  %s\n\nCommand (in /workspace):\n  %s\n", diskMode, command)
 	return err
 }

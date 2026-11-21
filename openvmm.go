@@ -13,7 +13,7 @@ import (
 
 const shutdownGrace = 2 * time.Second
 
-func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string) error {
+func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string, temporary bool) error {
 	log.Stepln("Starting VM...")
 
 	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
@@ -23,7 +23,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string) error 
 
 	log.Subf("Session log: %s\n", output.Name())
 
-	err = runOpenVMM(ctx, output, mounts, command)
+	err = runOpenVMM(ctx, output, mounts, command, temporary)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
@@ -33,7 +33,7 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount, command string) error 
 	return errors.Join(err, closeErr)
 }
 
-func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, command string) error {
+func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, command string, temporary bool) error {
 	address, cleanup, err := consoleAddress()
 	if err != nil {
 		return err
@@ -41,7 +41,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 
 	defer cleanup()
 
-	args, err := openVMMArgs(address, mounts)
+	args, err := openVMMArgs(address, mounts, temporary)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, comma
 	}
 }
 
-func openVMMArgs(address string, mounts []GuestMount) ([]string, error) {
+func openVMMArgs(address string, mounts []GuestMount, temporary bool) ([]string, error) {
 	err := ValidateGuestMounts(mounts)
 	if err != nil {
 		return nil, err
@@ -153,13 +153,19 @@ func openVMMArgs(address string, mounts []GuestMount) ([]string, error) {
 		return nil, fmt.Errorf("OpenVMM cannot represent console path %q: commas, equals signs and NUL are unsupported", address)
 	}
 
+	disk := "file:" + config.Source.disk
+
+	if temporary {
+		disk = "memdiff:" + disk
+	}
+
 	baseArgs := []string{
 		"--hv",
 		"--processors", strconv.Itoa(config.Machine.Processors),
 		"--memory", fmt.Sprintf("%dG", config.Machine.Memory),
 		"--kernel", config.Source.kernel,
 		"--initrd", config.Source.initrd,
-		"--virtio-blk", "file:" + config.Source.disk + ",pcie_port=disk",
+		"--virtio-blk", disk + ",pcie_port=disk",
 		"--cmdline", "root=/dev/vda rootfstype=ext4 rootflags=rw console=hvc0 modules=virtio_pci,virtio_blk,ext4 contain.mounts=1",
 		"--pcie-root-complex", "rc0",
 		"--pcie-root-port", "rc0:disk",
