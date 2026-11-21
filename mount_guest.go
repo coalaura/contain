@@ -11,7 +11,7 @@ import (
 var guestMountScript string
 
 // Script tabs are indentation; omit them so console input cannot trigger completion.
-var guestMountCommandPrefix = "sh -c " + shellQuote(strings.ReplaceAll(guestMountScript, "\t", "")) + " contain"
+var guestMountCommandPrefix = "bash -c " + shellQuote(strings.ReplaceAll(guestMountScript, "\t", "")) + " contain"
 
 func mountGuestFilesystems(ctx context.Context, con *console, mounts []GuestMount) error {
 	err := con.runShell(ctx, guestMountCommand(mounts))

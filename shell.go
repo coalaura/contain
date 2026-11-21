@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	guestSuspendHistoryCommand = `__contain_history_enabled=0; if [[ -o history ]]; then __contain_history_enabled=1; fi; set +o history; case "$(HISTTIMEFORMAT= builtin history 1)" in *@TOKEN@*) builtin history -d -1 ;; esac`
+	guestResumeHistoryCommand  = `if [[ $__contain_history_enabled == 1 ]]; then set -o history; fi; unset __contain_history_enabled`
+)
+
 //go:embed shutdown_guest.sh
 var guestShutdownScript string
 
@@ -22,12 +27,20 @@ var guestCommandScript string
 // Tabs would trigger completion in the interactive console while transmitting the script.
 var (
 	guestShutdownCommand = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
-	guestCommandPrefix   = "sh -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
+	guestCommandPrefix   = "bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
 )
+
+func (c *console) suspendHistory(ctx context.Context) error {
+	// Keep the bootstrap on one input line, even when Bash's cmdhist option is off.
+	// Its unique token prevents deleting user history if Bash ignored this command.
+	script := strings.ReplaceAll(guestSuspendHistoryCommand, "@TOKEN@", rand.Text())
+
+	return c.runShell(ctx, script)
+}
 
 func (c *console) startCommand(ctx context.Context, command string) error {
 	if command == "" {
-		return c.runShell(ctx, guestShutdownCommand)
+		return c.runShell(ctx, guestShutdownCommand+" && "+guestResumeHistoryCommand)
 	}
 
 	token := rand.Text()
@@ -35,8 +48,9 @@ func (c *console) startCommand(ctx context.Context, command string) error {
 	right := token[16:]
 	marker := left + right + "_READY:"
 
-	// Split the marker so echoed input cannot be mistaken for supervisor output.
-	payload := guestCommandPrefix + shellQuote(command) + " " + shellQuote(left) + " " + shellQuote(right)
+	// Restore history in the same input that starts the command, before it takes over stdin.
+	// Split the marker to distinguish output from echoed input.
+	payload := guestResumeHistoryCommand + "; " + guestCommandPrefix + shellQuote(command) + " " + shellQuote(left) + " " + shellQuote(right)
 
 	err := c.sendLine(ctx, payload)
 	if err != nil {

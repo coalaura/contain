@@ -278,7 +278,12 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		}
 	}
 
-	err = con.runShell(ctx, `test "$(id -u)" -eq 0`)
+	err = con.suspendHistory(ctx)
+	if err != nil {
+		return fmt.Errorf("suspend guest Bash history: %w", err)
+	}
+
+	err = con.runShell(ctx, `[[ $EUID == 0 ]]`)
 	if err != nil {
 		return fmt.Errorf("guest login must have root privileges: %w", err)
 	}

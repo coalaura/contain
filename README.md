@@ -11,7 +11,7 @@ Run tools and agents in an isolated Linux workspace powered by OpenVMM.
 ## Requirements
 
 - `openvmm` available on `PATH` with host virtualization enabled
-- A guest image directory containing `disk.raw`, `vmlinuz-virt` and `initramfs-virt` (see [Guest Image](#guest-image))
+- An Alpine image with Bash as its login shell, as produced by `contain create` or the bundled Alpine builder (see [Guest Image](#guest-image))
 
 ## Installation
 
@@ -52,7 +52,8 @@ mounts:
 - Mounts use `target: projects` by default, mounting at `/projects/<name>`. Use `target: config` for the guest's `$HOME/.config/<name>`. Names may contain ASCII letters, digits, `.`, `_` and `-` (excluding `.` and `..`).
 - Host paths support `~` for the host user's home, including `~\.config\opencode` on Windows. This also works with `--mount` and `machine.source`. Dry-run shows guest config destinations as `~/.config/<name>` until the guest home can be resolved at login.
 - `writable` exports existing relative subdirectories read/write beneath a `readonly: true` mount, allowing selective persistence without making the whole mount writable.
-- When `machine.command` is set, it runs inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead. Exiting the interactive shell with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`.
+- When `machine.command` is set, it runs in Bash inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead. Exiting the interactive shell with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`.
+- Bash history is temporarily disabled during session initialization, keeping internal setup and shutdown commands out of history. The previous history setting is restored before handing over the terminal.
 
 ## Usage
 
@@ -107,7 +108,7 @@ contain create --size 16G  # custom disk size
 contain create --tools     # include development tools and dependencies
 ```
 
-This downloads the latest stable Alpine netboot kernel and initramfs, formats a raw ext4 disk in Go and installs `alpine-base` and `linux-virt` inside a RAM-booted VM. The installer downloads Alpine's matching module archive and exports the installed boot files through virtio-fs. Internet access is required on the host and in the guest. No host-side Linux formatting or mounting tools are needed. Disk sizes use binary units and must be at least 512 MiB.
+This downloads the latest stable Alpine netboot kernel and initramfs, formats a raw ext4 disk in Go and installs `alpine-base`, `linux-virt` and Bash inside a RAM-booted VM. Bash is the default login shell, including without `--tools`. The installer downloads Alpine's matching module archive and exports the installed boot files through virtio-fs. Internet access is required on the host and in the guest. No host-side Linux formatting or mounting tools are needed. Disk sizes use binary units and must be at least 512 MiB.
 
 With `--tools`, an extra step inside Alpine installs common packages including Python, C/C++ build tools, Git and shell utilities. It installs the latest [Tap](https://github.com/coalaura/tap), then uses `tap get` for Go, PACE, Zig, Bun's musl build, builder, vet and ffwebp's full build. Their binary directories are added to the guest's login `PATH`.
 

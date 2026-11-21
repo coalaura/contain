@@ -145,7 +145,8 @@ SYS_BOUND=1
 # Turn minirootfs into a bootable Alpine installation and install the VM kernel.
 "${SUDO[@]}" chroot "$MNT" /bin/sh -eux <<'EOF_CHROOT'
 apk update
-apk add --no-cache alpine-base linux-virt
+apk add --no-cache alpine-base linux-virt bash
+sed -i 's|^\(root:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1/bin/bash|' /etc/passwd
 
 # Essential OpenRC services for a disk-installed VM.
 add_service() {
