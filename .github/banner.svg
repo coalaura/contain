@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280" role="img" aria-labelledby="title description">
+	<title id="title">contain</title>
+	<desc id="description">A curious orange agent presses against the inside of the square o in contain. An isolated Linux workspace for tools and agents.</desc>
+	<defs>
+		<path id="letter-n" d="M0 218V112M0 159C0 130 21 112 51 112C83 112 104 132 104 164V218"/>
+	</defs>
+	<g id="wordmark" transform="translate(-16 -8)">
+		<g id="lettering" fill="none" stroke="#e2ece5" stroke-width="28">
+			<path id="letter-c" d="M229 128C217 115 201 108 183 108C150 108 129 132 129 164C129 196 150 220 183 220C202 220 218 212 230 199"/>
+			<use href="#letter-n" x="487"/>
+			<path id="letter-t" d="M662 65V182C662 207 674 218 696 218C710 218 724 213 734 206M632 120H736"/>
+			<path id="letter-a" d="M889 166C889 134 868 112 838 112C808 112 787 135 787 166C787 198 808 220 838 220C868 220 889 197 889 166M889 112V218"/>
+			<path id="letter-i" d="M946 112V218"/>
+			<use href="#letter-n" x="999"/>
+		</g>
+		<circle cx="946" cy="73" r="15" fill="#e2ece5"/>
+		<g id="contained-agent" transform="translate(270 68)">
+			<rect id="boundary" width="174" height="164" rx="2" fill="none" stroke="#e2ece5" stroke-width="10"/>
+			<path id="agent" fill="#f4a66c" d="M48 59C35 42 35 24 47 23C57 21 60 41 68 44C76 38 84 35 94 37C96 27 89 8 103 8H115C129 8 115 29 119 45C128 50 134 61 135 73C147 78 154 66 158 58C161 51 166 52 166 61V84C166 98 147 99 137 95C133 107 123 116 115 120C117 132 137 133 137 145C137 153 129 156 118 156H108C94 156 100 135 91 130C82 132 75 131 69 128C62 135 65 156 53 156H39C26 156 28 146 36 138C45 129 48 122 47 113C37 106 33 97 31 88C21 88 8 98 8 84V64C8 54 18 55 23 63C30 73 39 74 46 70Z"/>
+			<g id="eyes" fill="#fff5e8">
+				<ellipse cx="81" cy="77" rx="13" ry="17" transform="rotate(-12 81 77)"/>
+				<ellipse cx="111" cy="73" rx="12" ry="16" transform="rotate(-12 111 73)"/>
+			</g>
+			<g id="expression" fill="#382c28">
+				<circle cx="85" cy="74" r="6"/>
+				<circle cx="115" cy="70" r="6"/>
+				<path d="M84 105Q98 112 111 102" fill="none" stroke="#382c28" stroke-width="4" stroke-linecap="round"/>
+			</g>
+		</g>
+	</g>
+</svg>

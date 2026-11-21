@@ -1,4 +1,8 @@
-# contain
+<picture>
+	<source media="(prefers-color-scheme: dark)" srcset=".github/banner.svg">
+	<source media="(prefers-color-scheme: light)" srcset=".github/banner-light.svg">
+	<img alt="contain: an isolated Linux workspace, illustrated by an agent held inside the square o." src=".github/banner-light.svg">
+</picture>
 
 Run tools and agents in an isolated Linux workspace powered by OpenVMM.
 
