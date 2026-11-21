@@ -124,8 +124,10 @@ func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]Gue
 			case "", "projects":
 			case "config":
 				root = guestConfigRoot
+			case "local":
+				root = guestLocalRoot
 			default:
-				return nil, fmt.Errorf("mounts[%d].target must be projects or config, got %q", number, mount.Target)
+				return nil, fmt.Errorf("mounts[%d].target must be projects, config or local, got %q", number, mount.Target)
 			}
 
 			host, err := resolveHostPath(mount.Host)
@@ -173,7 +175,7 @@ func (c *Config) Store() error {
 	var (
 		buffer   bytes.Buffer
 		comments = yaml.CommentMap{
-			"$.mounts": {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name, host (supports ~) and optional readonly (default false)"), yaml.HeadComment(" target: projects (default, /projects) or config (guest $HOME/.config)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
+			"$.mounts": {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: name, host (supports ~) and optional readonly (default false)"), yaml.HeadComment(" target: projects (default, /projects), config (guest $HOME/.config) or local (guest $HOME/.local)"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
 
 			"$.machine.source":     {yaml.HeadComment(" path to the guest image directory (supports ~)")},
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},

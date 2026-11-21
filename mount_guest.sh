@@ -27,9 +27,9 @@ resolve_mount_path() {
 	resolved=$1
 
 	case "$resolved" in
-		'~/.config/'*)
-			[ -n "$HOME" ] || fail 'guest HOME is not set for config mounts' "$1"
-			resolved=${HOME%/}/.config/${resolved#'~/.config/'}
+		'~/.config/'*|'~/.local/'*)
+			[ -n "$HOME" ] || fail 'guest HOME is not set for home-relative mounts' "$1"
+			resolved=${HOME%/}/${resolved#'~/'}
 			;;
 	esac
 }
