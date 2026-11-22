@@ -90,11 +90,11 @@ func (config Config) Validate() error {
 }
 
 func (config Config) InspectHTTPS() bool {
-	return config.Mode == "isolated" && config.Credentials != ""
+	return config.Mode == "isolated" && config.Credentials == "opencode"
 }
 
 func DefaultConfig() Config {
-	return Config{Mode: "isolated", Default: "deny", Allow: []string{}, Deny: []string{}}
+	return Config{Mode: "isolated", Default: "deny", Allow: []string{}, Deny: []string{}, Credentials: "none"}
 }
 
 func compileNetworkPolicy(config Config) (*networkPolicy, error) {
@@ -106,8 +106,8 @@ func compileNetworkPolicy(config Config) (*networkPolicy, error) {
 		return nil, errors.New("machine.network.default must be allow or deny")
 	}
 
-	if config.Credentials != "" && config.Credentials != "opencode" {
-		return nil, errors.New("machine.network.credentials must be opencode or omitted")
+	if config.Credentials != "" && config.Credentials != "none" && config.Credentials != "opencode" {
+		return nil, errors.New("machine.network.credentials must be none, opencode or empty")
 	}
 
 	allow, err := networkPrefixes(config.Allow)

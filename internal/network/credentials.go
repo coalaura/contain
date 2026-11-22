@@ -135,7 +135,7 @@ func LoadCredentials(adapter, dataDirectory string) (*Credentials, error) {
 		oauth: make(map[string]*oauthCredential, 2),
 	}
 
-	if adapter == "" {
+	if adapter == "" || adapter == "none" {
 		return credentials, nil
 	}
 

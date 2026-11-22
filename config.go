@@ -29,8 +29,8 @@ type MachineConfig struct {
 	Source     string         `yaml:"source"`
 	Processors int            `yaml:"processors"`
 	Memory     int            `yaml:"memory"`
-	Login      ConfigLogin    `yaml:"login"`
 	Command    string         `yaml:"command"`
+	Login      ConfigLogin    `yaml:"login"`
 	Network    network.Config `yaml:"network"`
 }
 
@@ -88,13 +88,26 @@ func (c *Config) Store() error {
 	var (
 		buffer   bytes.Buffer
 		comments = yaml.CommentMap{
-			"$.mounts":    {yaml.HeadComment(""), yaml.HeadComment(" additional mounts: host, guest and optional readonly (default false)"), yaml.HeadComment(" guest: a direct child of /projects, ~/.config, ~/.local, ~/.local/share, ~/.local/state or ~/.local/bin"), yaml.HeadComment(" writable lists existing relative subdirectories exported read/write; requires readonly: true")},
-			"$.snapshots": {yaml.HeadComment(""), yaml.HeadComment(" files copied once per session: host and guest (absolute path or ~/...; guest ~ means /root)"), yaml.HeadComment(" replaces guest files with private (0600) copies; destinations overlapping host mounts are rejected")},
+			"$.mounts":    {yaml.HeadComment("", " additional mounts: host, guest and optional readonly (default false)", " guest: a direct child of /projects, ~/.config, ~/.local, ~/.local/share, ~/.local/state or ~/.local/bin", " writable lists existing relative subdirectories exported read/write; requires readonly: true")},
+			"$.snapshots": {yaml.HeadComment("", " files copied once per session: host and guest (absolute path or ~/...; guest ~ means /root)", " replaces guest files with private (0600) copies; destinations overlapping host mounts are rejected")},
 
 			"$.machine.source":     {yaml.HeadComment(" path to the guest image directory (supports ~)")},
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
 			"$.machine.memory":     {yaml.HeadComment(" amount of memory to assign to the vm (in GiB)")},
 			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
+
+			"$.machine.login":          {yaml.HeadComment("")},
+			"$.machine.login.username": {yaml.HeadComment(" guest console login username")},
+			"$.machine.login.password": {yaml.HeadComment(" guest console login password")},
+
+			"$.machine.network":                {yaml.HeadComment("")},
+			"$.machine.network.mode":           {yaml.HeadComment(" open (no IP rules), isolated (IP rules) or closed (no external access)")},
+			"$.machine.network.default":        {yaml.HeadComment(" action for unmatched IPs in isolated mode: allow or deny")},
+			"$.machine.network.allow":          {yaml.HeadComment(" IP addresses/CIDRs allowed in isolated mode with default: deny")},
+			"$.machine.network.deny":           {yaml.HeadComment(" IP addresses/CIDRs blocked in isolated mode; overrides allow")},
+			"$.machine.network.credentials":    {yaml.HeadComment(" none (or empty), or opencode to inject host credentials in isolated mode")},
+			"$.machine.network.allow_loopback": {yaml.HeadComment(" allow host addresses, including loopback; still subject to network rules")},
+			"$.machine.network.allow_lan":      {yaml.HeadComment(" allow private and directly connected networks; still subject to network rules")},
 		}
 	)
 

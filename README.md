@@ -42,7 +42,7 @@ machine:
     default: deny # allow | deny
     allow: []
     deny: []
-    credentials: "" # optional: opencode
+    credentials: none # none (or empty) | opencode
     allow_loopback: false # access to the host itself
     allow_lan: false # access to private and directly connected networks
 
@@ -96,7 +96,7 @@ network: # under machine
 - **DNS & routing:** DNS uses `1.1.1.1` and `2606:4700:4700::1111` under the same IP rules, and allowing DNS does not authorize resolved addresses. There is no inbound port forwarding. Outbound traffic uses the host's source address and routing, so allowed loopback/private targets can reach host or LAN services; treat any allowed destination (and any proxy/tunnel on it) as a capability.
 - **Protocols:** TCP, UDP and ICMP echo are supported; unknown protocols are rejected even in `open` mode. Fragmented packets, IPv4 options, IPv6 extension headers, multicast, unspecified destinations, scoped IPv6 link-local destinations, ICMP errors and path-MTU discovery are unsupported. Linux echo requires unprivileged ping sockets (`ping_group_range`) and fails rather than elevating privileges; Windows uses the native IP Helper echo API.
 - **HTTPS interception:** Only `isolated` mode with `credentials: opencode` intercepts TCP port 443, supporting HTTP/1.1 and HTTP/2 with incremental streaming, SSE, cancellation and backpressure. Upstream connections are pinned to the original destination IP with standard TLS verification; guest SNI or `Host` cannot redirect traffic. Invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. Certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS on port 443 are unsupported while interception is enabled.
-- **Transparent traffic & QUIC:** With credentials omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently, including UDP port 443 for HTTP/3/QUIC, even if credentials are configured. Credential loading, injection and guest placeholders are inactive in `open` and `closed` modes. UDP port 443 remains blocked in `isolated`, including without credentials; `closed` blocks all networking. Opaque encrypted payloads cannot be inspected, and destination IP restrictions are not a content filter.
+- **Transparent traffic & QUIC:** With credentials set to `none` (the default), omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently, including UDP port 443 for HTTP/3/QUIC, even if credentials are configured. Credential loading, injection and guest placeholders are inactive in `open` and `closed` modes. UDP port 443 remains blocked in `isolated`, including without credentials; `closed` blocks all networking. Opaque encrypted payloads cannot be inspected, and destination IP restrictions are not a content filter.
 - **Host CA & trust:** The host CA signing key stays in `~/.local/contain/network-ca/` under host permissions. Only the public certificate is installed into Alpine's trust store (and exported via `NODE_EXTRA_CA_CERTS`). Existing images need the required packages/modules or rebuilding.
 - **Limits & timeouts:** Sessions are capped at 128 flows, 128 host sockets, 64 concurrent HTTPS requests and 8 HTTP/2 streams per guest connection, with 64 KiB TCP buffers, 16 KiB streaming buffers and 32 KiB header limits. Timeouts are 10s dial/handshake, 20s transport liveness, 30s UDP idle and 2m TCP/HTTPS idle. Excess traffic is rejected or dropped rather than queued unboundedly.
 
