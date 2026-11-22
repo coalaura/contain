@@ -49,6 +49,9 @@ machine:
     primary: 1.1.1.1:53
     secondary: "[2606:4700:4700::1111]:53"
 
+logs:
+  max_size_mib: 10 # per file (1-1024); at most two files per session
+
 mounts:
   - host: /path/to/downloads
     guest: /projects/downloads
@@ -116,6 +119,7 @@ Set `machine.network.credentials: opencode` with `mode: isolated` to use host AP
 
 - **Credential sources:** Reads host `OPENCODE_AUTH_CONTENT` first (matching OpenCode 1.19.6 auth CLI precedence), then `$XDG_DATA_HOME/opencode/auth.json` or `~/.local/share/opencode/auth.json`. Supports `type: oauth` (`access`, `refresh`, `expires` in Unix milliseconds, optional OpenAI `accountId`). Does not import SQLite integration credentials. Malformed entries, OAuth for other providers, `wellknown` entries and unrecognized providers fail startup.
 - **Placeholders & injection:** The guest receives non-secret placeholder entries (with distant OAuth expiry) and, for OAuth, `OPENCODE_CONFIG_CONTENT` with placeholder SDK keys and OpenAI's Codex base URL; normal on-disk config still applies. Real keys, tokens, account IDs and the CA private key never enter the guest or gateway logs. Auth is replaced only for exact approved TLS identities and API paths over independently verified upstream TLS; IP policy still applies, and redirects are never followed with injected auth.
+- **API-key scope:** Host API keys authorize only exact `POST` inference paths and `GET` model lists: OpenAI `/v1/chat/completions`, `/v1/responses`, `/v1/responses/compact`, `/v1/models`; OpenRouter `/api/v1/chat/completions`, `/api/v1/responses`, `/api/v1/models`; Anthropic `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`; Groq `/openai/v1/chat/completions`, `/openai/v1/models`; Mistral `/v1/chat/completions`, `/v1/fim/completions`, `/v1/models`; DeepSeek `/chat/completions`, `/models` and their `/v1` equivalents. Other operations on a provider with a loaded host key receive HTTP 403, including file access, stored-response retrieval, batch jobs and account management. Encoded path aliases are rejected. All guest processes can use the permitted operations, so inference usage still consumes the host account's quota.
 - **OpenAI OAuth:** Authorizes `POST https://chatgpt.com/backend-api/codex/responses` and `/responses/compact` with host-managed `ChatGPT-Account-Id` when available. It is not an `api.openai.com` API key; use a Responses/Codex-compatible model.
 - **Anthropic OAuth:** Authorizes `POST https://api.anthropic.com/v1/messages` and `/v1/messages/count_tokens`, replacing `X-Api-Key` with bearer auth and adding `anthropic-beta: oauth-2025-04-20`. Provider scopes, subscription eligibility and client restrictions still apply; `contain` does not impersonate Claude Code, rewrite prompts/tool names, or translate incompatible protocols.
 - **Host-only refresh:** Runs on the host shortly before expiry against the fixed OpenAI or Anthropic token endpoint with normal TLS verification and no redirects. Refresh uses the same host DNS resolver, domain rules, cache and temporary IP grants as guest queries, and resolved IPs must pass destination policy. With `default: deny`, allow the inference domains plus `auth.openai.com` for OpenAI or `console.anthropic.com` for Anthropic; no upstream DNS-server IP rules are needed. Failed refreshes fail the request with a short retry cooldown; proxied requests are never buffered or replayed.
@@ -205,5 +209,5 @@ An optional `./prepare-vm.sh` script is also included to preinstall common devel
 
 - Console communication uses a per-session named pipe on Windows and a Unix domain socket on Linux and macOS.
 - Terminal dimensions are synchronized at startup and on host resize events, using `SIGWINCH` on Unix and console input events on Windows. A bundled Go helper receives updates over COM2 and resizes `/dev/hvc0`; existing images do not need rebuilding.
-- Session logs are written to `~/.local/contain/contain-*.log`.
+- Session logs are written to `~/.local/contain/contain-*.log`. Each session keeps at most two files: the current `.log` and the previous `.1.log`. When the current file is full, the previous file is deleted, the current file becomes the previous file, and a new current file is opened. `logs.max_size_mib` limits each file (default 10 MiB, range 1-1024), including console output and OpenVMM stdout/stderr. Installer logs use the same rotation with a fixed 10 MiB per-file limit because `contain create` does not load the VM configuration. Completed sessions' logs remain on disk; the two-file limit is per session.
 - Empty mountpoint directories are removed automatically on unmount and normal guest shutdown; their parent directories are preserved.

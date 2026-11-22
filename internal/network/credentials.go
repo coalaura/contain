@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,7 +15,6 @@ import (
 type networkProvider struct {
 	name string
 	host string
-	prefix string
 	header string
 	bearer bool
 }
@@ -51,13 +49,15 @@ type oauthGuestOptions struct {
 	BaseURL string `json:"baseURL,omitempty"`
 }
 
+var errCredentialEndpoint = errors.New("host API credentials only authorize supported inference and model-list endpoints")
+
 var networkProviders = []networkProvider{
-	{name: "openai", host: "api.openai.com", prefix: "/v1/", header: "Authorization", bearer: true},
-	{name: "openrouter", host: "openrouter.ai", prefix: "/api/v1/", header: "Authorization", bearer: true},
-	{name: "anthropic", host: "api.anthropic.com", prefix: "/v1/", header: "X-Api-Key"},
-	{name: "groq", host: "api.groq.com", prefix: "/openai/v1/", header: "Authorization", bearer: true},
-	{name: "mistral", host: "api.mistral.ai", prefix: "/v1/", header: "Authorization", bearer: true},
-	{name: "deepseek", host: "api.deepseek.com", prefix: "/", header: "Authorization", bearer: true},
+	{name: "openai", host: "api.openai.com", header: "Authorization", bearer: true},
+	{name: "openrouter", host: "openrouter.ai", header: "Authorization", bearer: true},
+	{name: "anthropic", host: "api.anthropic.com", header: "X-Api-Key"},
+	{name: "groq", host: "api.groq.com", header: "Authorization", bearer: true},
+	{name: "mistral", host: "api.mistral.ai", header: "Authorization", bearer: true},
+	{name: "deepseek", host: "api.deepseek.com", header: "Authorization", bearer: true},
 }
 
 func (credentials *Credentials) Placeholder() string {
@@ -110,10 +110,13 @@ func (credentials *Credentials) inject(request *http.Request, identity string, g
 	for index := range networkProviders {
 		provider := &networkProviders[index]
 		key := credentials.keys[provider.name]
-		cleanPath := path.Clean(request.URL.Path)
 
-		if key == "" || identity != provider.host || !strings.HasPrefix(cleanPath, provider.prefix) || strings.Contains(request.URL.Path, "\\") {
+		if key == "" || identity != provider.host {
 			continue
+		}
+
+		if !apiCredentialDestination(provider.name, request) {
+			return errCredentialEndpoint
 		}
 
 		if provider.bearer {
@@ -254,6 +257,46 @@ func LoadCredentials(adapter, dataDirectory string) (*Credentials, error) {
 	}
 
 	return credentials, nil
+}
+
+func apiCredentialDestination(name string, request *http.Request) bool {
+	// Do not normalize paths: encoded aliases and neighboring APIs must not inherit host authority.
+	if request.URL.RawPath != "" {
+		return false
+	}
+
+	endpoint := request.URL.Path
+
+	switch request.Method {
+	case http.MethodGet:
+		switch name {
+		case "openai", "anthropic", "mistral":
+			return endpoint == "/v1/models"
+		case "openrouter":
+			return endpoint == "/api/v1/models"
+		case "groq":
+			return endpoint == "/openai/v1/models"
+		case "deepseek":
+			return endpoint == "/models" || endpoint == "/v1/models"
+		}
+	case http.MethodPost:
+		switch name {
+		case "openai":
+			return endpoint == "/v1/chat/completions" || endpoint == "/v1/responses" || endpoint == "/v1/responses/compact"
+		case "openrouter":
+			return endpoint == "/api/v1/chat/completions" || endpoint == "/api/v1/responses"
+		case "anthropic":
+			return endpoint == "/v1/messages" || endpoint == "/v1/messages/count_tokens"
+		case "groq":
+			return endpoint == "/openai/v1/chat/completions"
+		case "mistral":
+			return endpoint == "/v1/chat/completions" || endpoint == "/v1/fim/completions"
+		case "deepseek":
+			return endpoint == "/chat/completions" || endpoint == "/v1/chat/completions"
+		}
+	}
+
+	return false
 }
 
 func networkAuthPath() (string, error) {

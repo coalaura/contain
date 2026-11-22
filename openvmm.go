@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/coalaura/contain/internal/mount"
 	"github.com/coalaura/contain/internal/network"
+	"github.com/coalaura/contain/internal/sessionlog"
 	"github.com/coalaura/contain/internal/snapshot"
 	"github.com/coalaura/contain/internal/terminal"
 )
@@ -24,7 +26,7 @@ const (
 func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
 	log.Stepln("Starting VM...")
 
-	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
+	output, err := sessionlog.New(paths.DataDirectory, "contain-*.log", config.Logs.MaxBytes())
 	if err != nil {
 		return fmt.Errorf("create session log: %w", err)
 	}
@@ -41,7 +43,7 @@ func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.
 	return errors.Join(err, closeErr)
 }
 
-func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
+func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
 	err := validateNetworkShares(mounts, snapshots)
 	if err != nil {
 		return err

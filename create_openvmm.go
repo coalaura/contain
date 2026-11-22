@@ -12,7 +12,7 @@ import (
 
 const installTimeout = 20 * time.Minute
 
-func installAlpine(ctx context.Context, machine *MachineConfig, repository, marker string, output *os.File) error {
+func installAlpine(ctx context.Context, machine *MachineConfig, repository, marker string, output io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 

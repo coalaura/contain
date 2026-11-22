@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	imagecreate "github.com/coalaura/contain/internal/create"
 	"github.com/coalaura/contain/internal/network"
+	"github.com/coalaura/contain/internal/sessionlog"
 	"github.com/urfave/cli/v3"
 )
 
@@ -56,7 +58,11 @@ func create(ctx context.Context, command *cli.Command) error {
 
 	defer os.RemoveAll(staging)
 
-	output, err := os.CreateTemp(paths.DataDirectory, "contain-create-*.log")
+	logConfig := sessionlog.Config{
+		MaxSizeMiB: sessionlog.DefaultMaxSizeMiB,
+	}
+
+	output, err := sessionlog.New(paths.DataDirectory, "contain-create-*.log", logConfig.MaxBytes())
 	if err != nil {
 		return fmt.Errorf("create installer log: %w", err)
 	}
@@ -101,7 +107,7 @@ func create(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func buildAlpine(ctx context.Context, directory string, size int64, tools bool, output *os.File) error {
+func buildAlpine(ctx context.Context, directory string, size int64, tools bool, output io.Writer) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 
 	log.Stepln("Resolving latest stable Alpine release...")

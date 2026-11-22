@@ -117,6 +117,12 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 	err := proxy.gateway.credentials.inject(outgoing, proxy.identity, proxy.gateway)
 	if err != nil {
+		if errors.Is(err, errCredentialEndpoint) {
+			http.Error(writer, errCredentialEndpoint.Error(), http.StatusForbidden)
+
+			return
+		}
+
 		http.Error(writer, oauthPublicError(err), http.StatusBadGateway)
 
 		return

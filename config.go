@@ -11,6 +11,7 @@ import (
 	"github.com/coalaura/contain/internal/mount"
 	"github.com/coalaura/contain/internal/network"
 	"github.com/coalaura/contain/internal/pathutil"
+	"github.com/coalaura/contain/internal/sessionlog"
 	"github.com/coalaura/contain/internal/snapshot"
 
 	"github.com/goccy/go-yaml"
@@ -37,6 +38,7 @@ type MachineConfig struct {
 
 type Config struct {
 	Machine   MachineConfig     `yaml:"machine"`
+	Logs      sessionlog.Config `yaml:"logs"`
 	Mounts    []mount.Config    `yaml:"mounts"`
 	Snapshots []snapshot.Config `yaml:"snapshots"`
 }
@@ -44,6 +46,11 @@ type Config struct {
 var MaxProcs = runtime.GOMAXPROCS(0)
 
 func (c *Config) Init() error {
+	logErr := c.Logs.Validate()
+	if logErr != nil {
+		return logErr
+	}
+
 	networkErr := c.Machine.Network.Validate()
 	if networkErr != nil {
 		return networkErr
@@ -94,8 +101,8 @@ func (c *Config) Store() error {
 	var (
 		buffer   bytes.Buffer
 		comments = yaml.CommentMap{
-			"$.mounts":    {yaml.HeadComment("", " additional mounts: host, guest and optional readonly (default false)", " guest: a direct child of /projects, ~/.config, ~/.local, ~/.local/share, ~/.local/state or ~/.local/bin", " writable lists existing relative subdirectories exported read/write; requires readonly: true")},
-			"$.snapshots": {yaml.HeadComment("", " files copied once per session: host and guest (absolute path or ~/...; guest ~ means /root)", " replaces guest files with private (0600) copies; destinations overlapping host mounts are rejected")},
+			"$.logs":              {yaml.HeadComment("", " session logs keep the current file and one previous file")},
+			"$.logs.max_size_mib": {yaml.HeadComment(" maximum size per log file in MiB (1-1024)")},
 
 			"$.machine.source":     {yaml.HeadComment(" path to the guest image directory (supports ~)")},
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
@@ -118,6 +125,9 @@ func (c *Config) Store() error {
 			"$.machine.dns":           {yaml.HeadComment("")},
 			"$.machine.dns.primary":   {yaml.HeadComment(" host resolver upstream: IP:port, domain:port or https://... DoH URL")},
 			"$.machine.dns.secondary": {yaml.HeadComment(" fallback DNS upstream; empty disables fallback")},
+
+			"$.mounts":    {yaml.HeadComment("", " additional mounts: host, guest and optional readonly (default false)", " guest: a direct child of /projects, ~/.config, ~/.local, ~/.local/share, ~/.local/state or ~/.local/bin", " writable lists existing relative subdirectories exported read/write; requires readonly: true")},
+			"$.snapshots": {yaml.HeadComment("", " files copied once per session: host and guest (absolute path or ~/...; guest ~ means /root)", " replaces guest files with private (0600) copies; destinations overlapping host mounts are rejected")},
 		}
 	)
 
@@ -143,6 +153,9 @@ func DefaultConfig() *Config {
 				Username: "root",
 				Password: "alpine",
 			},
+		},
+		Logs: sessionlog.Config{
+			MaxSizeMiB: sessionlog.DefaultMaxSizeMiB,
 		},
 		Mounts:    []mount.Config{},
 		Snapshots: []snapshot.Config{},
