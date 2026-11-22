@@ -26,16 +26,16 @@ type MachineConfig struct {
 	initrd string
 	kernel string
 
-	Source     string      `yaml:"source"`
-	Processors int         `yaml:"processors"`
-	Memory     int         `yaml:"memory"`
-	Login      ConfigLogin `yaml:"login"`
-	Command    string      `yaml:"command"`
+	Source     string         `yaml:"source"`
+	Processors int            `yaml:"processors"`
+	Memory     int            `yaml:"memory"`
+	Login      ConfigLogin    `yaml:"login"`
+	Command    string         `yaml:"command"`
 	Network    network.Config `yaml:"network"`
 }
 
 type Config struct {
-	Machine   MachineConfig    `yaml:"machine"`
+	Machine   MachineConfig     `yaml:"machine"`
 	Mounts    []mount.Config    `yaml:"mounts"`
 	Snapshots []snapshot.Config `yaml:"snapshots"`
 }
@@ -58,7 +58,7 @@ func (c *Config) Init() error {
 	// validate memory size
 	if c.Machine.Memory > 32 {
 		return errors.New("machine.memory can be at most 32G")
-	} else if c.Machine.Processors < 1 {
+	} else if c.Machine.Memory < 1 {
 		return errors.New("machine.memory has to be 1G or more")
 	}
 
