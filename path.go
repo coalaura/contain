@@ -9,6 +9,8 @@ import (
 type Paths struct {
 	WorkingDirectory string
 	DataDirectory    string
+	ImagesDirectory  string
+	LogsDirectory    string
 	ConfigFile       string
 	OpenVMM          string
 }
@@ -25,13 +27,11 @@ func ResolvePaths() (*Paths, error) {
 	}
 
 	dataDir := filepath.Join(home, ".local", "contain")
+	logsDir := filepath.Join(dataDir, "logs")
 
-	_, err = os.Stat(dataDir)
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(dataDir, 0755)
-		if err != nil {
-			return nil, err
-		}
+	err = os.MkdirAll(logsDir, 0700)
+	if err != nil {
+		return nil, err
 	}
 
 	configDir := filepath.Join(home, ".config")
@@ -52,6 +52,8 @@ func ResolvePaths() (*Paths, error) {
 	return &Paths{
 		WorkingDirectory: cwd,
 		DataDirectory:    dataDir,
+		ImagesDirectory:  filepath.Join(dataDir, "images"),
+		LogsDirectory:    logsDir,
 		ConfigFile:       filepath.Join(configDir, "contain.yml"),
 		OpenVMM:          bin,
 	}, nil

@@ -178,7 +178,7 @@ func (store *oauthStore) persist(name string, original, auth networkAuth) error 
 }
 
 func newOAuthStore(dataDirectory, source string, data []byte, environment bool) (*oauthStore, error) {
-	directory := filepath.Join(dataDirectory, "network-auth")
+	directory := filepath.Join(dataDirectory, "network", "auth")
 
 	err := os.MkdirAll(directory, 0700)
 	if err != nil {

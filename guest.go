@@ -11,7 +11,7 @@ import (
 const guestResizeCommand = "/run/contain-resize"
 
 type guestNetworkStep struct {
-	name string
+	name    string
 	command string
 }
 
@@ -43,8 +43,8 @@ func initializeGuestNetwork(ctx context.Context, con *console) error {
 	return nil
 }
 
-func prepareGuestHelper(publicCA []byte) (string, func(), error) {
-	directory, err := os.MkdirTemp(paths.DataDirectory, "contain-guest-*")
+func prepareGuestHelper(imageDirectory string, publicCA []byte) (string, func(), error) {
+	directory, err := os.MkdirTemp(imageDirectory, "contain-guest-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("create guest helper directory: %w", err)
 	}

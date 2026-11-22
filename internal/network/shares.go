@@ -8,13 +8,20 @@ import (
 	"strings"
 )
 
-func ValidateShares(dataDirectory string, directories, files []string) error {
+func ValidateShares(dataDirectory, imageDirectory string, directories, files []string) error {
 	auth, err := networkAuthPath()
 	if err != nil {
 		return err
 	}
 
-	protected := []string{filepath.Join(dataDirectory, "network-ca"), filepath.Join(dataDirectory, "network-ca", "authority.pem"), filepath.Join(dataDirectory, "network-auth"), filepath.Join(dataDirectory, "network-auth", "tokens.json"), auth}
+	protected := []string{
+		filepath.Join(dataDirectory, "images"),
+		imageDirectory,
+		filepath.Join(imageDirectory, "network", "ca", "authority.pem"),
+		filepath.Join(dataDirectory, "network", "auth"),
+		filepath.Join(dataDirectory, "network", "auth", "tokens.json"),
+		auth,
+	}
 
 	for _, filename := range protected {
 		private, pathErr := canonicalNetworkPath(filename)
@@ -29,7 +36,7 @@ func ValidateShares(dataDirectory string, directories, files []string) error {
 			}
 
 			if networkPathsContain(mounted, private) || networkPathsContain(private, mounted) {
-				return fmt.Errorf("mount %q exposes host-only network credentials or CA material", directory)
+				return fmt.Errorf("mount %q exposes host-only image data, network credentials or CA material", directory)
 			}
 		}
 
@@ -40,7 +47,7 @@ func ValidateShares(dataDirectory string, directories, files []string) error {
 			}
 
 			if networkPathsContain(private, source) || sameNetworkFile(filename, file) {
-				return fmt.Errorf("snapshot %q exposes host-only network credentials or CA material", file)
+				return fmt.Errorf("snapshot %q exposes host-only image data, network credentials or CA material", file)
 			}
 		}
 	}

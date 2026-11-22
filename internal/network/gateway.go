@@ -585,7 +585,7 @@ func (gateway *Gateway) WaitReady(ctx context.Context) error {
 	}
 }
 
-func Start(ctx context.Context, dataDirectory string, config Config, dns DNSConfig, ca *Authority, credentials *Credentials) (*Gateway, error) {
+func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, credentials *Credentials) (*Gateway, error) {
 	policy, err := compileNetworkPolicy(config)
 	if err != nil {
 		return nil, err
@@ -607,7 +607,8 @@ func Start(ctx context.Context, dataDirectory string, config Config, dns DNSConf
 		return nil, fmt.Errorf("inspect host networks: %w", err)
 	}
 
-	directory, err := os.MkdirTemp(dataDirectory, "net-")
+	// Keep Unix socket paths short even when the image directory is deeply nested.
+	directory, err := os.MkdirTemp("", "contain-net-")
 	if err != nil {
 		return nil, err
 	}

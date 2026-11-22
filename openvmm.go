@@ -26,7 +26,7 @@ const (
 func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
 	log.Stepln("Starting VM...")
 
-	output, err := sessionlog.New(paths.DataDirectory, "contain-*.log", config.Logs.MaxBytes())
+	output, err := sessionlog.New(paths.LogsDirectory, "contain-*.log", config.Logs.MaxBytes())
 	if err != nil {
 		return fmt.Errorf("create session log: %w", err)
 	}
@@ -49,7 +49,7 @@ func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, sna
 		return err
 	}
 
-	authority, err := network.LoadAuthority(paths.DataDirectory)
+	authority, err := network.LoadAuthority(config.Machine.directory)
 	if err != nil {
 		return fmt.Errorf("load network CA: %w", err)
 	}
@@ -65,7 +65,7 @@ func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, sna
 		return err
 	}
 
-	gateway, err := network.Start(ctx, paths.DataDirectory, config.Machine.Network, config.Machine.DNS, authority, credentials)
+	gateway, err := network.Start(ctx, config.Machine.Network, config.Machine.DNS, authority, credentials)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, sna
 
 	descriptor := terminal.Descriptor()
 
-	helperDirectory, cleanupHelper, err := prepareGuestHelper(authority.PublicCertificate())
+	helperDirectory, cleanupHelper, err := prepareGuestHelper(config.Machine.directory, authority.PublicCertificate())
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, sna
 		defer cleanupResize()
 	}
 
-	snapshotDirectory, cleanupSnapshots, err := snapshot.Prepare(paths.DataDirectory, snapshots)
+	snapshotDirectory, cleanupSnapshots, err := snapshot.Prepare(config.Machine.directory, snapshots)
 	if err != nil {
 		return err
 	}

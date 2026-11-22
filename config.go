@@ -23,9 +23,10 @@ type ConfigLogin struct {
 }
 
 type MachineConfig struct {
-	disk   string
-	initrd string
-	kernel string
+	directory string
+	disk      string
+	initrd    string
+	kernel    string
 
 	Source     string            `yaml:"source"`
 	Processors int               `yaml:"processors"`
@@ -90,6 +91,7 @@ func (c *Config) Init() error {
 		return err
 	}
 
+	c.Machine.directory = directory
 	c.Machine.disk = disk
 	c.Machine.initrd = initrd
 	c.Machine.kernel = kernel
@@ -144,7 +146,7 @@ func (c *Config) Store() error {
 func DefaultConfig() *Config {
 	return &Config{
 		Machine: MachineConfig{
-			Source:     filepath.Join(paths.DataDirectory, "images", "alpine"),
+			Source:     filepath.Join(paths.ImagesDirectory, "alpine"),
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
 			Network:    network.DefaultConfig(),

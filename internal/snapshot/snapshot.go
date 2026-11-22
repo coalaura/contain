@@ -13,7 +13,7 @@ import (
 )
 
 type Config struct {
-	Host string `yaml:"host"`
+	Host  string `yaml:"host"`
 	Guest string `yaml:"guest"`
 }
 
@@ -67,12 +67,12 @@ func Resolve(configured []Config, mounts []mount.Mount) ([]Snapshot, error) {
 	return snapshots, nil
 }
 
-func Prepare(dataDirectory string, snapshots []Snapshot) (string, func(), error) {
+func Prepare(imageDirectory string, snapshots []Snapshot) (string, func(), error) {
 	if len(snapshots) == 0 {
 		return "", func() {}, nil
 	}
 
-	directory, err := os.MkdirTemp(dataDirectory, "contain-snapshots-*")
+	directory, err := os.MkdirTemp(imageDirectory, "contain-snapshots-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("create snapshot directory: %w", err)
 	}

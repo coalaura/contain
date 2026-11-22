@@ -39,7 +39,7 @@ func create(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	directory := filepath.Join(paths.DataDirectory, "images", "alpine")
+	directory := filepath.Join(paths.ImagesDirectory, "alpine")
 
 	err = requireNewImage(directory)
 	if err != nil {
@@ -62,7 +62,7 @@ func create(ctx context.Context, command *cli.Command) error {
 		MaxSizeMiB: sessionlog.DefaultMaxSizeMiB,
 	}
 
-	output, err := sessionlog.New(paths.DataDirectory, "contain-create-*.log", logConfig.MaxBytes())
+	output, err := sessionlog.New(paths.LogsDirectory, "contain-create-*.log", logConfig.MaxBytes())
 	if err != nil {
 		return fmt.Errorf("create installer log: %w", err)
 	}
@@ -149,7 +149,7 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 
 	marker := "__CONTAIN_INSTALL_" + rand.Text() + ":"
 
-	authority, err := network.LoadAuthority(paths.DataDirectory)
+	authority, err := network.LoadAuthority(directory)
 	if err != nil {
 		return err
 	}

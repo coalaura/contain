@@ -61,8 +61,8 @@ func (authority *Authority) issue(identity string) (*tls.Certificate, error) {
 	return &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
 
-func LoadAuthority(dataDirectory string) (*Authority, error) {
-	directory := filepath.Join(dataDirectory, "network-ca")
+func LoadAuthority(imageDirectory string) (*Authority, error) {
+	directory := filepath.Join(imageDirectory, "network", "ca")
 
 	err := os.MkdirAll(directory, 0700)
 	if err != nil {

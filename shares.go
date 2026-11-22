@@ -18,5 +18,5 @@ func validateNetworkShares(mounts []mount.Mount, snapshots []snapshot.Snapshot) 
 		files[index] = snapshots[index].HostPath
 	}
 
-	return network.ValidateShares(paths.DataDirectory, directories, files)
+	return network.ValidateShares(paths.DataDirectory, config.Machine.directory, directories, files)
 }
