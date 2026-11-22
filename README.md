@@ -50,7 +50,7 @@ machine:
     secondary: "[2606:4700:4700::1111]:53"
 
 logs:
-  max_size_mib: 10 # per file (1-1024); at most two files per session
+  max_size_mib: 10 # per file (1-1024); current + previous for each log
 
 mounts:
   - host: /path/to/downloads
@@ -209,5 +209,6 @@ An optional `./prepare-vm.sh` script is also included to preinstall common devel
 
 - Console communication uses a per-session named pipe on Windows and a Unix domain socket on Linux and macOS.
 - Terminal dimensions are synchronized at startup and on host resize events, using `SIGWINCH` on Unix and console input events on Windows. A bundled Go helper receives updates over COM2 and resizes `/dev/hvc0`; existing images do not need rebuilding.
-- Session logs are written to `~/.local/contain/logs/contain-*.log`. Each session keeps at most two files: the current `.log` and the previous `.1.log`. When the current file is full, the previous file is deleted, the current file becomes the previous file, and a new current file is opened. `logs.max_size_mib` limits each file (default 10 MiB, range 1-1024), including console output and OpenVMM stdout/stderr. Installer logs use the same rotation with a fixed 10 MiB per-file limit because `contain create` does not load the VM configuration. Completed sessions' logs remain on disk; the two-file limit is per session.
+- Session logs are written to `~/.local/contain/logs/contain-*.log`, with separate network logs at `contain-network-*.log`; both paths are printed at startup. Network logs contain UTC timestamps, gateway lifecycle events, TCP/UDP connection decisions, ICMP results, packet drops, DNS results (including cache hits), and intercepted TLS/HTTPS outcomes. HTTPS entries record the host, method, status and elapsed time on completion, including streaming responses; transparent HTTPS has connection-level entries only. Headers, URL paths/queries, credentials and payloads are never logged. Peer-controlled names are bounded and escaped. Logging is capped at 100 events per second, with a suppressed-event count written on the next event after the window ends or at shutdown.
+- Each session keeps a current `.log` and previous `.1.log` for each of its session and network logs (at most four files total). When a current file is full, its previous file is deleted, the current file becomes the previous file, and a new current file is opened. `logs.max_size_mib` limits each file (default 10 MiB, range 1-1024). Installer logs use the same rotation with a fixed 10 MiB per-file limit because `contain create` does not load the VM configuration. Completed sessions' logs remain on disk; rotation limits apply separately to each session.
 - Empty mountpoint directories are removed automatically on unmount and normal guest shutdown; their parent directories are preserved.

@@ -1,20 +1,29 @@
 package network
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"net/netip"
+)
 
 func (gateway *Gateway) forwardEcho(packet []byte, parsed networkPacket) {
 	copyPacket := append([]byte(nil), packet...)
 
-	gateway.launch(func() {
+	destination := netip.AddrPortFrom(parsed.destination, 0)
+
+	started := gateway.launch(func() {
 		// Re-check at the platform send boundary, independently of frame validation.
 		err := gateway.policy.checkDestination(parsed.destination)
 		if err != nil {
+			gateway.logConnection("ICMP", destination, err)
+
 			return
 		}
 
 		payload := copyPacket[parsed.header:]
 
 		err = sendNetworkEcho(gateway.ctx, parsed.destination, payload)
+		gateway.logConnection("ICMP", destination, err)
+
 		if err != nil {
 			return
 		}
@@ -47,4 +56,8 @@ func (gateway *Gateway) forwardEcho(packet []byte, parsed networkPacket) {
 
 		gateway.writeFrame(copyPacket)
 	})
+
+	if !started {
+		gateway.logger.record(networkEvent{protocol: "ICMP", action: "DROP", destination: destination, reason: "flow limit or shutdown"})
+	}
 }

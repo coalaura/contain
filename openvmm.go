@@ -33,17 +33,25 @@ func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.
 
 	log.Subf("Session log: %s\n", output.Name())
 
-	err = runOpenVMM(ctx, output, mounts, snapshots, command, temporary)
+	networkOutput, err := sessionlog.New(paths.LogsDirectory, "contain-network-*.log", config.Logs.MaxBytes())
+	if err != nil {
+		return errors.Join(fmt.Errorf("create network log: %w", err), output.Close())
+	}
+
+	log.Subf("Network log: %s\n", networkOutput.Name())
+
+	err = runOpenVMM(ctx, output, networkOutput, mounts, snapshots, command, temporary)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
 
 	closeErr := output.Close()
+	networkCloseErr := networkOutput.Close()
 
-	return errors.Join(err, closeErr)
+	return errors.Join(err, closeErr, networkCloseErr)
 }
 
-func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
+func runOpenVMM(ctx context.Context, output, networkOutput io.Writer, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
 	err := validateNetworkShares(mounts, snapshots)
 	if err != nil {
 		return err
@@ -65,7 +73,7 @@ func runOpenVMM(ctx context.Context, output io.Writer, mounts []mount.Mount, sna
 		return err
 	}
 
-	gateway, err := network.Start(ctx, config.Machine.Network, config.Machine.DNS, authority, credentials)
+	gateway, err := network.Start(ctx, config.Machine.Network, config.Machine.DNS, authority, credentials, networkOutput)
 	if err != nil {
 		return err
 	}

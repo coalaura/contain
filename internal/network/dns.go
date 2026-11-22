@@ -21,8 +21,17 @@ func (policy *networkPolicy) servesDNS(destination netip.AddrPort) bool {
 	return policy.mode != "closed" && destination.Addr() == dnsAddress && destination.Port() == 53
 }
 
-func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsmessage.Message) []byte {
+func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsmessage.Message) (response []byte) {
+	started := time.Now()
+	source := "upstream"
+
+	defer func() {
+		gateway.logDNS(query, response, started, source)
+	}()
+
 	if !gateway.policy.permitsDomain(query.Questions[0].Name.String()) {
+		source = "domain policy"
+
 		return dnsReply(query, dnsmessage.RCodeRefused, false)
 	}
 
@@ -31,6 +40,8 @@ func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsm
 
 	cached := gateway.policy.dns.lookup(key, query.ID)
 	if cached != nil {
+		source = "cache"
+
 		return cached
 	}
 
@@ -40,6 +51,8 @@ func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsm
 			<-gateway.dnsQueries
 		}()
 	default:
+		source = "query limit"
+
 		return dnsReply(query, dnsmessage.RCodeServerFailure, false)
 	}
 
@@ -60,6 +73,8 @@ func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsm
 		if gateway.policy.mode == "isolated" && message.RCode == dnsmessage.RCodeSuccess {
 			addresses, err = gateway.policy.dnsAddresses(message)
 			if errors.Is(err, errNetworkDenied) {
+				source = "CNAME policy"
+
 				return dnsReply(query, dnsmessage.RCodeRefused, false)
 			}
 
@@ -75,6 +90,8 @@ func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsm
 
 		return response
 	}
+
+	source = "upstream failed"
 
 	return dnsReply(query, dnsmessage.RCodeServerFailure, false)
 }
@@ -189,7 +206,7 @@ func (gateway *Gateway) lookupDNSAddresses(ctx context.Context, host string) ([]
 	for _, queryType := range queryTypes {
 		query := dnsmessage.Message{
 			RecursionDesired: true,
-			Questions: []dnsmessage.Question{{Name: name, Type: queryType, Class: dnsmessage.ClassINET}},
+			Questions:        []dnsmessage.Question{{Name: name, Type: queryType, Class: dnsmessage.ClassINET}},
 		}
 
 		wire, packErr := query.Pack()

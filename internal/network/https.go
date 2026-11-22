@@ -17,12 +17,13 @@ import (
 )
 
 type networkHTTPS struct {
-	gateway   *Gateway
-	identity  string
-	transport *http.Transport
-	mutex     sync.Mutex
-	closed    bool
-	handlers  sync.WaitGroup
+	gateway     *Gateway
+	identity    string
+	destination netip.AddrPort
+	transport   *http.Transport
+	mutex       sync.Mutex
+	closed      bool
+	handlers    sync.WaitGroup
 }
 
 type networkSingleListener struct {
@@ -81,12 +82,33 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 	defer proxy.handlers.Done()
 
+	event := networkEvent{
+		protocol:    "HTTPS",
+		action:      "ERROR",
+		target:      proxy.identity,
+		destination: proxy.destination,
+		method:      networkLogMethod(request.Method),
+		reason:      "response interrupted",
+		started:     time.Now(),
+	}
+
+	defer func() {
+		if request.Context().Err() != nil {
+			event.action = "CANCEL"
+			event.reason = "request canceled"
+		}
+
+		proxy.gateway.logger.record(event)
+	}()
+
 	select {
 	case proxy.gateway.requests <- struct{}{}:
 		defer func() {
 			<-proxy.gateway.requests
 		}()
 	default:
+		event.status = http.StatusServiceUnavailable
+		event.reason = "request limit"
 		http.Error(writer, "gateway request limit", http.StatusServiceUnavailable)
 
 		return
@@ -97,6 +119,10 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 	validScheme := request.URL.Scheme == "" || request.URL.Scheme == "https"
 
 	if !validHost || !validURL || !validScheme || request.Method == http.MethodConnect || request.Header.Get("Upgrade") != "" || request.URL.User != nil {
+		event.action = "DENY"
+		event.status = http.StatusBadRequest
+		event.reason = "invalid destination or unsupported tunnel"
+
 		http.Error(writer, "invalid HTTPS destination or unsupported tunnel", http.StatusBadRequest)
 
 		return
@@ -118,10 +144,17 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 	err := proxy.gateway.credentials.inject(outgoing, proxy.identity, proxy.gateway)
 	if err != nil {
 		if errors.Is(err, errCredentialEndpoint) {
+			event.action = "DENY"
+			event.status = http.StatusForbidden
+			event.reason = "credential endpoint policy"
+
 			http.Error(writer, errCredentialEndpoint.Error(), http.StatusForbidden)
 
 			return
 		}
+
+		event.status = http.StatusBadGateway
+		event.reason = "credential injection failed"
 
 		http.Error(writer, oauthPublicError(err), http.StatusBadGateway)
 
@@ -130,7 +163,11 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 	response, err := proxy.transport.RoundTrip(outgoing)
 	if err != nil {
+		event.reason = networkHTTPSError(err)
+
 		if request.Context().Err() == nil {
+			event.status = http.StatusBadGateway
+
 			http.Error(writer, networkHTTPSError(err), http.StatusBadGateway)
 		}
 
@@ -146,6 +183,8 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 	for name := range response.Trailer {
 		writer.Header().Add("Trailer", name)
 	}
+
+	event.status = response.StatusCode
 
 	writer.WriteHeader(response.StatusCode)
 
@@ -186,6 +225,9 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 	for name, values := range response.Trailer {
 		writer.Header()[http.TrailerPrefix+name] = values
 	}
+
+	event.action = "REPLY"
+	event.reason = ""
 }
 
 func (gateway *Gateway) interceptHTTPS(guest, upstream net.Conn, destination netip.AddrPort) {
@@ -215,10 +257,14 @@ func (gateway *Gateway) interceptHTTPS(guest, upstream net.Conn, destination net
 
 	err := connection.HandshakeContext(gateway.ctx)
 	if err != nil {
+		gateway.logger.record(networkEvent{protocol: "TLS", action: "ERROR", destination: destination, reason: "guest handshake failed"})
+
 		return
 	}
 
 	defer connection.Close()
+
+	gateway.logger.record(networkEvent{protocol: "TLS", action: "ACCEPT", target: identity, destination: destination})
 
 	connection.SetDeadline(time.Time{})
 
@@ -277,7 +323,7 @@ func (gateway *Gateway) interceptHTTPS(guest, upstream net.Conn, destination net
 
 	defer transport.CloseIdleConnections()
 
-	proxy := &networkHTTPS{gateway: gateway, identity: identity, transport: transport}
+	proxy := &networkHTTPS{gateway: gateway, identity: identity, destination: destination, transport: transport}
 
 	ctx, cancel := context.WithCancel(gateway.ctx)
 	defer cancel()

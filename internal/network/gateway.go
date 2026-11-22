@@ -43,6 +43,7 @@ type Gateway struct {
 	dnsQueries  chan struct{}
 	ca          *Authority
 	credentials *Credentials
+	logger      *networkLogger
 	base        string
 	directory   string
 	listener    net.Listener
@@ -191,6 +192,9 @@ func (gateway *Gateway) Close() error {
 	gateway.workers.Wait()
 	gateway.link.Close()
 
+	gateway.logger.record(networkEvent{protocol: "GATEWAY", action: "STOP"})
+	gateway.logger.flush()
+
 	return os.RemoveAll(gateway.directory)
 }
 
@@ -243,6 +247,20 @@ func (gateway *Gateway) launch(work func()) bool {
 }
 
 func (gateway *Gateway) dial(ctx context.Context, protocol string, destination netip.AddrPort) (net.Conn, error) {
+	connection, err := gateway.connect(ctx, protocol, destination)
+
+	label := "TCP"
+
+	if protocol == "udp" {
+		label = "UDP"
+	}
+
+	gateway.logConnection(label, destination, err)
+
+	return connection, err
+}
+
+func (gateway *Gateway) connect(ctx context.Context, protocol string, destination netip.AddrPort) (net.Conn, error) {
 	if gateway.ctx.Err() != nil {
 		return nil, context.Canceled
 	}
@@ -299,6 +317,8 @@ func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 	}
 
 	if !gateway.policy.permits(destination.Addr()) {
+		gateway.logConnection("TCP", destination, errNetworkDenied)
+
 		request.Complete(true)
 
 		return
@@ -345,6 +365,8 @@ func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 	})
 
 	if !started {
+		gateway.logger.record(networkEvent{protocol: "TCP", action: "DROP", destination: destination, reason: "flow limit or shutdown"})
+
 		request.Complete(true)
 	}
 }
@@ -382,6 +404,8 @@ func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 	isDNS := gateway.policy.servesDNS(destination)
 
 	if !isDNS && (!gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open") {
+		gateway.logConnection("UDP", destination, errNetworkDenied)
+
 		return false
 	}
 
@@ -418,6 +442,8 @@ func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 	})
 
 	if !started {
+		gateway.logger.record(networkEvent{protocol: "UDP", action: "DROP", destination: destination, reason: "flow limit or shutdown"})
+
 		guest.Close()
 	}
 
@@ -458,6 +484,8 @@ func (gateway *Gateway) serve() {
 
 	close(gateway.ready)
 
+	gateway.logger.record(networkEvent{protocol: "GATEWAY", action: "READY"})
+
 	gateway.workers.Add(1)
 	go gateway.writePackets()
 
@@ -495,6 +523,8 @@ func (gateway *Gateway) serve() {
 
 		parsed, packetErr := inspectNetworkPacket(frame[:length], gateway.policy)
 		if packetErr != nil {
+			gateway.logPacketDrop(parsed, packetErr)
+
 			continue
 		}
 
@@ -585,7 +615,7 @@ func (gateway *Gateway) WaitReady(ctx context.Context) error {
 	}
 }
 
-func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, credentials *Credentials) (*Gateway, error) {
+func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, credentials *Credentials, output io.Writer) (*Gateway, error) {
 	policy, err := compileNetworkPolicy(config)
 	if err != nil {
 		return nil, err
@@ -640,6 +670,7 @@ func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, cre
 		dnsQueries:  make(chan struct{}, 32),
 		ca:          ca,
 		credentials: credentials,
+		logger:      newNetworkLogger(output),
 		base:        base,
 		directory:   directory,
 		listener:    listener,
@@ -662,6 +693,8 @@ func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, cre
 
 		return nil, fmt.Errorf("configure network stack: %s", stackErr)
 	}
+
+	gateway.logger.record(networkEvent{protocol: "GATEWAY", action: "START", reason: config.Mode})
 
 	gateway.workers.Add(1)
 	go gateway.serve()

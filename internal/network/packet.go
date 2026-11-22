@@ -93,9 +93,6 @@ func inspectNetworkPacket(packet []byte, policy *networkPolicy) (networkPacket, 
 		}
 
 		parsed.port = binary.BigEndian.Uint16(payload[2:4])
-		if parsed.port == 443 && policy.mode != "open" {
-			return parsed, errNetworkPacket
-		}
 	case 1:
 		if !parsed.source.Is4() || len(payload) < 8 || payload[0] != 8 || payload[1] != 0 || networkChecksum(payload, 0) != 0 {
 			return parsed, errNetworkPacket
@@ -111,6 +108,10 @@ func inspectNetworkPacket(packet []byte, policy *networkPolicy) (networkPacket, 
 
 	if (parsed.protocol == 6 || parsed.protocol == 17) && (parsed.port == 0 || binary.BigEndian.Uint16(payload[:2]) == 0) {
 		return parsed, errNetworkPacket
+	}
+
+	if parsed.protocol == 17 && parsed.port == 443 && policy.mode != "open" {
+		return parsed, errNetworkDenied
 	}
 
 	destination := netip.AddrPortFrom(parsed.destination, parsed.port)
