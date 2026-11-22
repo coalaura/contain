@@ -1,9 +1,12 @@
 package sessionlog
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -123,17 +126,25 @@ func (writer *Writer) rotate() error {
 	return nil
 }
 
-func New(directory, pattern string, limit int64) (*Writer, error) {
+func NewID() string {
+	var identifier [6]byte
+
+	rand.Read(identifier[:])
+
+	return hex.EncodeToString(identifier[:])
+}
+
+func New(directory, filename string, limit int64) (*Writer, error) {
 	if limit < 1 {
 		return nil, errors.New("session log size limit must be positive")
 	}
 
-	file, err := os.CreateTemp(directory, pattern)
+	name := filepath.Join(directory, filename)
+
+	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return nil, err
 	}
-
-	name := file.Name()
 
 	return &Writer{
 		file: file,

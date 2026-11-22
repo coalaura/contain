@@ -33,6 +33,7 @@ func create(ctx context.Context, command *cli.Command) error {
 	}
 
 	start := time.Now()
+	sessionID := sessionlog.NewID()
 
 	paths, err = ResolvePaths()
 	if err != nil {
@@ -62,7 +63,7 @@ func create(ctx context.Context, command *cli.Command) error {
 		MaxSizeMiB: sessionlog.DefaultMaxSizeMiB,
 	}
 
-	output, err := sessionlog.New(paths.LogsDirectory, "contain-create-*.log", logConfig.MaxBytes())
+	output, err := sessionlog.New(paths.LogsDirectory, "contain-create-"+sessionID+".log", logConfig.MaxBytes())
 	if err != nil {
 		return fmt.Errorf("create installer log: %w", err)
 	}

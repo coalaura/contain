@@ -24,16 +24,18 @@ const (
 )
 
 func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
+	sessionID := sessionlog.NewID()
+
 	log.Stepln("Starting VM...")
 
-	output, err := sessionlog.New(paths.LogsDirectory, "contain-*.log", config.Logs.MaxBytes())
+	output, err := sessionlog.New(paths.LogsDirectory, "contain-"+sessionID+".log", config.Logs.MaxBytes())
 	if err != nil {
 		return fmt.Errorf("create session log: %w", err)
 	}
 
 	log.Subf("Session log: %s\n", output.Name())
 
-	networkOutput, err := sessionlog.New(paths.LogsDirectory, "contain-network-*.log", config.Logs.MaxBytes())
+	networkOutput, err := sessionlog.New(paths.LogsDirectory, "contain-network-"+sessionID+".log", config.Logs.MaxBytes())
 	if err != nil {
 		return errors.Join(fmt.Errorf("create network log: %w", err), output.Close())
 	}
