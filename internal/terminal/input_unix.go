@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package terminal
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func relayInput(ctx context.Context, output io.Writer, resize *terminalResize) error {
+func RelayInput(ctx context.Context, output io.Writer, resize *Resize) error {
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return err

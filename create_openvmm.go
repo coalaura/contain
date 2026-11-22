@@ -39,6 +39,7 @@ func installAlpine(ctx context.Context, machine *MachineConfig, repository, mark
 	}
 
 	args = append(args, "--pcie-root-port", "rc0:export", "--virtio-fs", "pcie_port=export:contain_export,"+exportDirectory)
+	args = append(args, "--pcie-root-port", "rc0:net", "--virtio-net", "pcie_port=net:consomme")
 
 	processCtx, stopProcess := context.WithCancel(ctx)
 	defer stopProcess()

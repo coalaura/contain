@@ -9,11 +9,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/coalaura/contain/internal/mount"
+	"github.com/coalaura/contain/internal/network"
+	"github.com/coalaura/contain/internal/snapshot"
+	"github.com/coalaura/contain/internal/terminal"
 )
 
 const shutdownGrace = 2 * time.Second
 
-func RunOpenVMM(ctx context.Context, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
+func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
 	log.Stepln("Starting VM...")
 
 	output, err := os.CreateTemp(paths.DataDirectory, "contain-*.log")
@@ -33,7 +38,29 @@ func RunOpenVMM(ctx context.Context, mounts []GuestMount, snapshots []GuestSnaps
 	return errors.Join(err, closeErr)
 }
 
-func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
+func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
+	err := validateNetworkShares(mounts, snapshots)
+	if err != nil {
+		return err
+	}
+
+	authority, err := network.LoadAuthority(paths.DataDirectory)
+	if err != nil {
+		return fmt.Errorf("load network CA: %w", err)
+	}
+
+	credentials, err := network.LoadCredentials(config.Machine.Network.Credentials)
+	if err != nil {
+		return err
+	}
+
+	gateway, err := network.Start(ctx, paths.DataDirectory, config.Machine.Network, authority, credentials)
+	if err != nil {
+		return err
+	}
+
+	defer gateway.Close()
+
 	address, cleanup, err := consoleAddress()
 	if err != nil {
 		return err
@@ -41,12 +68,16 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, snaps
 
 	defer cleanup()
 
-	descriptor := terminalDescriptor()
+	descriptor := terminal.Descriptor()
 
-	var (
-		resizeAddress   string
-		helperDirectory string
-	)
+	helperDirectory, cleanupHelper, err := prepareGuestHelper(authority.PublicCertificate())
+	if err != nil {
+		return err
+	}
+
+	defer cleanupHelper()
+
+	var resizeAddress string
 
 	if descriptor >= 0 {
 		var cleanupResize func()
@@ -57,25 +88,16 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, snaps
 		}
 
 		defer cleanupResize()
-
-		var cleanupHelper func()
-
-		helperDirectory, cleanupHelper, err = prepareGuestHelper()
-		if err != nil {
-			return err
-		}
-
-		defer cleanupHelper()
 	}
 
-	snapshotDirectory, cleanupSnapshots, err := prepareGuestSnapshots(snapshots)
+	snapshotDirectory, cleanupSnapshots, err := snapshot.Prepare(paths.DataDirectory, snapshots)
 	if err != nil {
 		return err
 	}
 
 	defer cleanupSnapshots()
 
-	args, err := openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory, mounts, temporary)
+	args, err := openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory, gateway.Path(), mounts, temporary)
 	if err != nil {
 		return err
 	}
@@ -149,7 +171,44 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, snaps
 		return startupError(ctx, exited, &processErr, err)
 	}
 
-	var resize *terminalResize
+	err = initializeGuestNetwork(consoleCtx, con)
+	if err != nil {
+		return err
+	}
+
+	err = gateway.WaitReady(consoleCtx)
+	if err != nil {
+		return err
+	}
+
+	// During startup, let the helper report setup errors before terminating the VM.
+	// The gateway independently closes all host connections on transport failure.
+	watchNetwork := make(chan struct{})
+
+	go func() {
+		defer close(watchNetwork)
+
+		select {
+		case <-gateway.Done():
+			stopConsole()
+			stopProcess()
+		case <-exited:
+		}
+	}()
+
+	defer func() {
+		stopProcess()
+		<-watchNetwork
+	}()
+
+	if config.Machine.Network.Credentials == "opencode" {
+		err = con.runShell(consoleCtx, "export OPENCODE_AUTH_CONTENT="+shellQuote(credentials.Placeholder()))
+		if err != nil {
+			return err
+		}
+	}
+
+	var resize *terminal.Resize
 
 	if resizeAddress != "" {
 		resize, err = startTerminalResize(consoleCtx, con, resizeAddress, descriptor)
@@ -191,8 +250,8 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []GuestMount, snaps
 	}
 }
 
-func openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory string, mounts []GuestMount, temporary bool) ([]string, error) {
-	err := ValidateGuestMounts(mounts)
+func openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory, vsockPath string, mounts []mount.Mount, temporary bool) ([]string, error) {
+	err := mount.Validate(mounts)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +274,8 @@ func openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory stri
 		return nil, fmt.Errorf("OpenVMM cannot represent snapshot directory %q: commas and NUL are unsupported", snapshotDirectory)
 	}
 
-	if (resizeAddress == "") != (helperDirectory == "") {
-		return nil, errors.New("terminal resizing requires both a control channel and a guest helper")
+	if helperDirectory == "" || vsockPath == "" || strings.ContainsRune(vsockPath, '\x00') {
+		return nil, errors.New("normal sessions require a guest helper and vsock gateway")
 	}
 
 	args, err := machineArgs(&config.Machine, address, cmdline, temporary, 4*len(mounts)+10)
@@ -226,8 +285,10 @@ func openVMMArgs(address, resizeAddress, helperDirectory, snapshotDirectory stri
 
 	if resizeAddress != "" {
 		args = append(args, "--com2", "listen="+resizeAddress)
-		args = append(args, "--pcie-root-port", "rc0:guest", "--virtio-fs", "pcie_port=guest:contain_guest,"+helperDirectory+",ro")
 	}
+
+	args = append(args, "--pcie-root-port", "rc0:guest", "--virtio-fs", "pcie_port=guest:contain_guest,"+helperDirectory+",ro")
+	args = append(args, "--pcie-root-port", "rc0:vsock", "--virtio-vsock-path", vsockPath, "--virtio-vsock-bus", "pcie:vsock")
 
 	if snapshotDirectory != "" {
 		args = append(args, "--pcie-root-port", "rc0:snapshots", "--virtio-fs", "pcie_port=snapshots:contain_snapshots,"+snapshotDirectory+",ro")
@@ -280,8 +341,6 @@ func machineArgs(machine *MachineConfig, address, cmdline string, temporary bool
 		"--com1", "none",
 		"--virtio-console", "listen=" + address,
 		"--virtio-console-pcie-port", "console",
-		"--pcie-root-port", "rc0:net",
-		"--virtio-net", "pcie_port=net:consomme",
 		"--guest-shutdown-action", "exit",
 	}
 

@@ -1,4 +1,4 @@
-package main
+package snapshot
 
 import (
 	"errors"
@@ -7,20 +7,28 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/coalaura/contain/internal/mount"
+	"github.com/coalaura/contain/internal/pathutil"
 )
 
-type GuestSnapshot struct {
+type Config struct {
+	Host string `yaml:"host"`
+	Guest string `yaml:"guest"`
+}
+
+type Snapshot struct {
 	HostPath  string
 	GuestPath string
 }
 
-func (c *Config) GuestSnapshots(mounts []GuestMount) ([]GuestSnapshot, error) {
-	snapshots := make([]GuestSnapshot, 0, len(c.Snapshots))
+func Resolve(configured []Config, mounts []mount.Mount) ([]Snapshot, error) {
+	snapshots := make([]Snapshot, 0, len(configured))
 
-	for index := range c.Snapshots {
-		snapshot := &c.Snapshots[index]
+	for index := range configured {
+		snapshot := &configured[index]
 
-		target, err := resolveGuestPath(snapshot.Guest)
+		target, err := pathutil.Guest(snapshot.Guest)
 		if err != nil {
 			return nil, fmt.Errorf("snapshots[%d].guest: %w", index, err)
 		}
@@ -39,7 +47,7 @@ func (c *Config) GuestSnapshots(mounts []GuestMount) ([]GuestSnapshot, error) {
 			}
 		}
 
-		host, err := resolveHostPath(snapshot.Host)
+		host, err := pathutil.Host(snapshot.Host)
 		if err != nil {
 			return nil, fmt.Errorf("snapshots[%d].host: %w", index, err)
 		}
@@ -53,18 +61,18 @@ func (c *Config) GuestSnapshots(mounts []GuestMount) ([]GuestSnapshot, error) {
 			return nil, fmt.Errorf("snapshots[%d].host must be a regular file", index)
 		}
 
-		snapshots = append(snapshots, GuestSnapshot{HostPath: host, GuestPath: target})
+		snapshots = append(snapshots, Snapshot{HostPath: host, GuestPath: target})
 	}
 
 	return snapshots, nil
 }
 
-func prepareGuestSnapshots(snapshots []GuestSnapshot) (string, func(), error) {
+func Prepare(dataDirectory string, snapshots []Snapshot) (string, func(), error) {
 	if len(snapshots) == 0 {
 		return "", func() {}, nil
 	}
 
-	directory, err := os.MkdirTemp(paths.DataDirectory, "contain-snapshots-*")
+	directory, err := os.MkdirTemp(dataDirectory, "contain-snapshots-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("create snapshot directory: %w", err)
 	}
@@ -116,5 +124,5 @@ func copySnapshot(source, destination string) error {
 }
 
 func guestPathsOverlap(first, second string) bool {
-	return first == second || guestPathWithin(first, second) || guestPathWithin(second, first)
+	return first == second || pathutil.GuestWithin(first, second) || pathutil.GuestWithin(second, first)
 }

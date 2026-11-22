@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package terminal
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-func watchTerminalResize(resize *terminalResize) func() {
+func watchTerminalResize(resize *Resize) func() {
 	events := make(chan os.Signal, 1)
 	stop := make(chan struct{})
 	done := make(chan struct{})

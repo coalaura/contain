@@ -145,7 +145,7 @@ SYS_BOUND=1
 # Turn minirootfs into a bootable Alpine installation and install the VM kernel.
 "${SUDO[@]}" chroot "$MNT" /bin/sh -eux <<'EOF_CHROOT'
 apk update
-apk add --no-cache alpine-base linux-virt bash
+apk add --no-cache alpine-base linux-virt bash ca-certificates iproute2
 sed -i 's|^\(root:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\).*|\1/bin/bash|' /etc/passwd
 
 cat > /root/.bashrc <<'BASHRC'
@@ -197,8 +197,6 @@ printf '%s\n' "$GUEST_HOSTNAME" | "${SUDO[@]}" tee "$MNT/etc/hostname" >/dev/nul
 auto lo
 iface lo inet loopback
 
-auto eth0
-iface eth0 inet dhcp
 EOF_NETWORK
 
 # The raw file is the filesystem itself, so OpenVMM exposes the root as /dev/vda.

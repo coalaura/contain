@@ -7,7 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
+
+	"github.com/coalaura/contain/internal/mount"
+	"github.com/coalaura/contain/internal/network"
+	"github.com/coalaura/contain/internal/pathutil"
+	"github.com/coalaura/contain/internal/snapshot"
 
 	"github.com/goccy/go-yaml"
 )
@@ -27,29 +31,23 @@ type MachineConfig struct {
 	Memory     int         `yaml:"memory"`
 	Login      ConfigLogin `yaml:"login"`
 	Command    string      `yaml:"command"`
-}
-
-type MountConfig struct {
-	Host     string   `yaml:"host"`
-	Guest    string   `yaml:"guest"`
-	Readonly bool     `yaml:"readonly"`
-	Writable []string `yaml:"writable,omitempty"`
-}
-
-type SnapshotConfig struct {
-	Host  string `yaml:"host"`
-	Guest string `yaml:"guest"`
+	Network    network.Config `yaml:"network"`
 }
 
 type Config struct {
 	Machine   MachineConfig    `yaml:"machine"`
-	Mounts    []MountConfig    `yaml:"mounts"`
-	Snapshots []SnapshotConfig `yaml:"snapshots"`
+	Mounts    []mount.Config    `yaml:"mounts"`
+	Snapshots []snapshot.Config `yaml:"snapshots"`
 }
 
 var MaxProcs = runtime.GOMAXPROCS(0)
 
 func (c *Config) Init() error {
+	networkErr := c.Machine.Network.Validate()
+	if networkErr != nil {
+		return networkErr
+	}
+
 	// validate processor count
 	if c.Machine.Processors > MaxProcs {
 		return fmt.Errorf("machine.processors can be at most %d", MaxProcs)
@@ -65,7 +63,7 @@ func (c *Config) Init() error {
 	}
 
 	// validate guest image files
-	directory, err := resolveHostPath(c.Machine.Source)
+	directory, err := pathutil.Host(c.Machine.Source)
 	if err != nil {
 		return fmt.Errorf("machine.source: %w", err)
 	}
@@ -74,7 +72,7 @@ func (c *Config) Init() error {
 	initrd := filepath.Join(directory, "initramfs-virt")
 	kernel := filepath.Join(directory, "vmlinuz-virt")
 
-	err = FilesExist(disk, initrd, kernel)
+	err = pathutil.FilesExist(disk, initrd, kernel)
 	if err != nil {
 		return err
 	}
@@ -84,79 +82,6 @@ func (c *Config) Init() error {
 	c.Machine.kernel = kernel
 
 	return nil
-}
-
-func (c *Config) GuestMounts(workspace string, additional ...MountConfig) ([]GuestMount, error) {
-	groups := [2][]MountConfig{c.Mounts, additional}
-	count := len(c.Mounts) + len(additional) + 1
-
-	for _, group := range groups {
-		for index := range group {
-			count += len(group[index].Writable)
-		}
-	}
-
-	mounts := make([]GuestMount, 1, count)
-
-	mounts[0] = GuestMount{
-		Tag:       "workspace",
-		GuestPath: "/workspace",
-		HostPath:  workspace,
-	}
-
-	number := 0
-
-	for _, group := range groups {
-		for index := range group {
-			mount := &group[index]
-
-			guestPath, err := resolveGuestPath(mount.Guest)
-			if err != nil {
-				return nil, fmt.Errorf("mounts[%d].guest: %w", number, err)
-			}
-
-			if len(mount.Writable) > 0 && !mount.Readonly {
-				return nil, fmt.Errorf("mounts[%d].writable requires readonly: true", number)
-			}
-
-			host, err := resolveHostPath(mount.Host)
-			if err != nil {
-				return nil, fmt.Errorf("mounts[%d].host: %w", number, err)
-			}
-
-			tag := "project" + strconv.Itoa(number)
-
-			mounts = append(mounts, GuestMount{
-				Tag:       tag,
-				GuestPath: guestPath,
-				HostPath:  host,
-				Readonly:  mount.Readonly,
-			})
-
-			for overrideIndex, relative := range mount.Writable {
-				local, err := localWritablePath(relative)
-				if err != nil {
-					return nil, fmt.Errorf("mounts[%d].writable[%d]: %w", number, overrideIndex, err)
-				}
-
-				mounts = append(mounts, GuestMount{
-					Tag:        tag + "_write" + strconv.Itoa(overrideIndex),
-					GuestPath:  guestPath + "/" + relative,
-					HostPath:   filepath.Join(host, local),
-					ParentPath: guestPath,
-				})
-			}
-
-			number++
-		}
-	}
-
-	err := ValidateGuestMounts(mounts)
-	if err != nil {
-		return nil, err
-	}
-
-	return mounts, nil
 }
 
 func (c *Config) Store() error {
@@ -189,13 +114,14 @@ func DefaultConfig() *Config {
 			Source:     filepath.Join(paths.DataDirectory, "images", "alpine"),
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
+			Network:    network.DefaultConfig(),
 			Login: ConfigLogin{
 				Username: "root",
 				Password: "alpine",
 			},
 		},
-		Mounts:    []MountConfig{},
-		Snapshots: []SnapshotConfig{},
+		Mounts:    []mount.Config{},
+		Snapshots: []snapshot.Config{},
 	}
 }
 
@@ -239,8 +165,4 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func validMountName(name string) bool {
-	return name != "." && name != ".." && validMountIdentifier(name)
 }

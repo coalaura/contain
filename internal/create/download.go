@@ -1,4 +1,4 @@
-package main
+package create
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	alpineMirror   = "https://dl-cdn.alpinelinux.org/alpine"
+	AlpineMirror   = "https://dl-cdn.alpinelinux.org/alpine"
 	maxNetbootSize = 256 << 20
 )
 
@@ -23,8 +23,8 @@ type alpineRelease struct {
 	Flavor string `yaml:"flavor"`
 }
 
-func alpineBranch(ctx context.Context, client *http.Client) (string, error) {
-	url := alpineMirror + "/latest-stable/releases/x86_64/latest-releases.yaml"
+func AlpineBranch(ctx context.Context, client *http.Client) (string, error) {
+	url := AlpineMirror + "/latest-stable/releases/x86_64/latest-releases.yaml"
 
 	response, err := requestAlpine(ctx, client, url)
 	if err != nil {
@@ -58,7 +58,7 @@ func alpineBranch(ctx context.Context, client *http.Client) (string, error) {
 	return "", errors.New("release metadata contains no stable x86_64 Alpine netboot release")
 }
 
-func downloadAlpine(ctx context.Context, client *http.Client, url, destination string) error {
+func DownloadAlpine(ctx context.Context, client *http.Client, url, destination string) error {
 	response, err := requestAlpine(ctx, client, url)
 	if err != nil {
 		return err

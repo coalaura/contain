@@ -1,4 +1,4 @@
-package main
+package mount
 
 import (
 	"fmt"
@@ -11,13 +11,13 @@ import (
 	"github.com/diskfs/go-diskfs/filesystem/ext4"
 )
 
-type mountInspection struct {
-	status string
-	err    error
+type Inspection struct {
+	Status string
+	Err    error
 }
 
-func inspectMountTargets(diskPath string, mounts []GuestMount) []mountInspection {
-	results := make([]mountInspection, len(mounts))
+func InspectTargets(diskPath string, mounts []Mount) []Inspection {
+	results := make([]Inspection, len(mounts))
 
 	if len(mounts) == 0 {
 		return results
@@ -34,19 +34,19 @@ func inspectMountTargets(diskPath string, mounts []GuestMount) []mountInspection
 
 		// Writable overrides cover the parent host export, not the guest disk.
 		if mount.ParentPath != "" {
-			result.status = "n/a (parent mount)"
+			result.Status = "n/a (parent mount)"
 
 			continue
 		}
 
 		if diskErr != nil {
-			result.status = "unknown"
-			result.err = diskErr
+			result.Status = "unknown"
+			result.Err = diskErr
 
 			continue
 		}
 
-		result.status, result.err = inspectGuestMount(filesystem, mount.GuestPath)
+		result.Status, result.Err = inspectGuestMount(filesystem, mount.GuestPath)
 	}
 
 	return results

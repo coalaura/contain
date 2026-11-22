@@ -7,11 +7,14 @@ import (
 	"net"
 	"os"
 	"time"
+	"fmt"
+
+	"github.com/coalaura/contain/internal/terminal"
 
 	"golang.org/x/term"
 )
 
-func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, resize *terminalResize) error {
+func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, resize *terminal.Resize) error {
 	fd := int(os.Stdin.Fd())
 
 	if term.IsTerminal(fd) {
@@ -27,7 +30,7 @@ func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, re
 	inputDone := make(chan error, 1)
 
 	go func() {
-		err := relayInput(inputCtx, con.Writer(), resize)
+		err := terminal.RelayInput(inputCtx, con.Writer(), resize)
 		inputDone <- err
 
 		if err != nil && inputCtx.Err() == nil {
@@ -85,6 +88,22 @@ func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, re
 	}
 
 	return errors.Join(relayError(inputErr), relayError(outputErr))
+}
+
+func startTerminalResize(ctx context.Context, con *console, address string, descriptor int) (*terminal.Resize, error) {
+	control, err := ConnectConsole(ctx, address, io.Discard)
+	if err != nil {
+		return nil, fmt.Errorf("connect terminal resize channel: %w", err)
+	}
+
+	err = con.runShell(ctx, guestResizeCommand)
+	if err != nil {
+		control.Close()
+
+		return nil, fmt.Errorf("initialize guest terminal resizing: %w", err)
+	}
+
+	return terminal.StartResize(ctx, control.conn, descriptor)
 }
 
 func relayError(err error) error {

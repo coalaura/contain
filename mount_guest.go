@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+
+	"github.com/coalaura/contain/internal/mount"
 )
 
 //go:embed mount_guest.sh
@@ -13,7 +15,7 @@ var guestMountScript string
 // Script tabs are indentation; omit them so console input cannot trigger completion.
 var guestMountCommandPrefix = "bash -c " + shellQuote(strings.ReplaceAll(guestMountScript, "\t", "")) + " contain"
 
-func mountGuestFilesystems(ctx context.Context, con *console, mounts []GuestMount) error {
+func mountGuestFilesystems(ctx context.Context, con *console, mounts []mount.Mount) error {
 	err := con.runShell(ctx, guestMountCommand(mounts))
 	if err != nil {
 		return fmt.Errorf("prepare guest mounts: %w", err)
@@ -22,7 +24,7 @@ func mountGuestFilesystems(ctx context.Context, con *console, mounts []GuestMoun
 	return nil
 }
 
-func guestMountCommand(mounts []GuestMount) string {
+func guestMountCommand(mounts []mount.Mount) string {
 	size := len(guestMountCommandPrefix)
 
 	for index := range mounts {

@@ -1,4 +1,4 @@
-package main
+package create
 
 import (
 	"errors"
@@ -9,11 +9,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coalaura/contain/internal/pathutil"
 	"github.com/diskfs/go-diskfs/backend/file"
 	"github.com/diskfs/go-diskfs/filesystem/ext4"
 )
 
-func parseDiskSize(value string) (int64, error) {
+func ParseDiskSize(value string) (int64, error) {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	if value == "" {
 		return 0, errors.New("disk size cannot be empty")
@@ -44,7 +45,7 @@ func parseDiskSize(value string) (int64, error) {
 	return size, nil
 }
 
-func createDisk(path string, size int64) error {
+func CreateDisk(path string, size int64) error {
 	disk, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 	if err != nil {
 		return fmt.Errorf("create disk: %w", err)
@@ -77,14 +78,14 @@ func createDisk(path string, size int64) error {
 	return disk.Close()
 }
 
-func collectBootFiles(directory string) error {
+func CollectBootFiles(directory string) error {
 	boot := filepath.Join(directory, "boot")
 	names := [...]string{"vmlinuz-virt", "initramfs-virt"}
 
 	for _, name := range names {
 		source := filepath.Join(boot, name)
 
-		err := FilesExist(source)
+		err := pathutil.FilesExist(source)
 		if err != nil {
 			return fmt.Errorf("export %s: %w", name, err)
 		}

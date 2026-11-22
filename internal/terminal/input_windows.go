@@ -1,4 +1,4 @@
-package main
+package terminal
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 
 var cancelSynchronousIO = windows.NewLazySystemDLL("kernel32.dll").NewProc("CancelSynchronousIo")
 
-func relayInput(ctx context.Context, output io.Writer, resize *terminalResize) error {
+func RelayInput(ctx context.Context, output io.Writer, resize *Resize) error {
 	input := windows.Handle(os.Stdin.Fd())
 
 	var mode uint32
@@ -30,7 +30,7 @@ func relayInput(ctx context.Context, output io.Writer, resize *terminalResize) e
 	return relayRedirectedInput(ctx, output, resize)
 }
 
-func relayRedirectedInput(ctx context.Context, output io.Writer, resize *terminalResize) error {
+func relayRedirectedInput(ctx context.Context, output io.Writer, resize *Resize) error {
 	// Redirecting stdin does not detach the console. Keep receiving its resize
 	// events, but take guest input exclusively from the redirected stream.
 	input, err := os.OpenFile("CONIN$", os.O_RDWR, 0)

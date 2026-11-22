@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/coalaura/contain/internal/mount"
 )
 
 const (
@@ -188,7 +190,7 @@ func ConnectConsole(ctx context.Context, address string, output io.Writer) (*con
 	}
 }
 
-func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mounts []GuestMount) error {
+func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mounts []mount.Mount) error {
 	if login.Username == "" {
 		login.Username = "root"
 	}
@@ -197,7 +199,7 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return errors.New("invalid guest username")
 	}
 
-	err := ValidateGuestMounts(mounts)
+	err := mount.Validate(mounts)
 	if err != nil {
 		return err
 	}

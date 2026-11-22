@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"time"
 
+	imagecreate "github.com/coalaura/contain/internal/create"
+	"github.com/coalaura/contain/internal/network"
 	"github.com/urfave/cli/v3"
 )
 
@@ -23,7 +25,7 @@ func create(ctx context.Context, command *cli.Command) error {
 		return errors.New("create currently requires an amd64 host")
 	}
 
-	size, err := parseDiskSize(command.String("size"))
+	size, err := imagecreate.ParseDiskSize(command.String("size"))
 	if err != nil {
 		return fmt.Errorf("--size: %w", err)
 	}
@@ -104,7 +106,7 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 
 	log.Stepln("Resolving latest stable Alpine release...")
 
-	branch, err := alpineBranch(ctx, client)
+	branch, err := imagecreate.AlpineBranch(ctx, client)
 	if err != nil {
 		return err
 	}
@@ -113,7 +115,7 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 
 	disk := filepath.Join(directory, "disk.raw")
 
-	err = createDisk(disk, size)
+	err = imagecreate.CreateDisk(disk, size)
 	if err != nil {
 		return err
 	}
@@ -124,24 +126,29 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 	machine.kernel = filepath.Join(directory, "netboot-kernel")
 	machine.initrd = filepath.Join(directory, "netboot-initramfs")
 
-	baseURL := alpineMirror + "/" + branch
+	baseURL := imagecreate.AlpineMirror + "/" + branch
 	netbootURL := baseURL + "/releases/x86_64/netboot/"
 
 	log.Stepf("Downloading Alpine %s netboot kernel and initramfs...\n", branch)
 
-	err = downloadAlpine(ctx, client, netbootURL+"vmlinuz-virt", machine.kernel)
+	err = imagecreate.DownloadAlpine(ctx, client, netbootURL+"vmlinuz-virt", machine.kernel)
 	if err != nil {
 		return err
 	}
 
-	err = downloadAlpine(ctx, client, netbootURL+"initramfs-virt", machine.initrd)
+	err = imagecreate.DownloadAlpine(ctx, client, netbootURL+"initramfs-virt", machine.initrd)
 	if err != nil {
 		return err
 	}
 
 	marker := "__CONTAIN_INSTALL_" + rand.Text() + ":"
 
-	err = appendInstaller(machine.initrd, baseURL, marker, tools)
+	authority, err := network.LoadAuthority(paths.DataDirectory)
+	if err != nil {
+		return err
+	}
+
+	err = imagecreate.AppendInstaller(machine.initrd, baseURL, marker, tools, authority.PublicCertificate())
 	if err != nil {
 		return fmt.Errorf("prepare installer initramfs: %w", err)
 	}
@@ -159,7 +166,7 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 
 	log.Stepln("Finalizing installed kernel and initramfs...")
 
-	err = collectBootFiles(directory)
+	err = imagecreate.CollectBootFiles(directory)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package main
+package create
 
 import (
 	"archive/tar"
@@ -18,14 +18,14 @@ type installerFile struct {
 	body string
 }
 
-//go:embed create_guest.sh
+//go:embed installer.sh
 var installerScript string
 
-//go:embed create_tools.sh
+//go:embed tools.sh
 var toolsScript string
 
-func appendInstaller(path, repository, marker string, tools bool) error {
-	overlay, err := installerOverlay(repository, marker, tools)
+func AppendInstaller(path, repository, marker string, tools bool, publicCA []byte) error {
+	overlay, err := installerOverlay(repository, marker, tools, publicCA)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func appendInstaller(path, repository, marker string, tools bool) error {
 	return output.Close()
 }
 
-func installerOverlay(repository, marker string, tools bool) ([]byte, error) {
+func installerOverlay(repository, marker string, tools bool, publicCA []byte) ([]byte, error) {
 	var buffer bytes.Buffer
 
 	compressed := gzip.NewWriter(&buffer)
@@ -69,7 +69,8 @@ func installerOverlay(repository, marker string, tools bool) ([]byte, error) {
 	script := strings.ReplaceAll(installerScript, "\r\n", "\n")
 	script = strings.ReplaceAll(script, "@STATUS_MARKER@", marker)
 
-	files := make([]installerFile, 0, 3)
+	files := make([]installerFile, 0, 4)
+	files = append(files, installerFile{name: "contain.crt", mode: 0644, body: string(publicCA)})
 	files = append(files, installerFile{name: "contain-install.sh", mode: 0755, body: script})
 	files = append(files, installerFile{name: "etc/apk/repositories", mode: 0644, body: repository + "/main\n" + repository + "/community\n"})
 

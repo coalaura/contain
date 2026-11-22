@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+
+	"github.com/coalaura/contain/internal/snapshot"
 )
 
 //go:embed snapshot_guest.sh
@@ -13,7 +15,7 @@ var guestSnapshotScript string
 // Omit indentation tabs to avoid triggering completion in the login shell.
 var guestSnapshotCommandPrefix = "bash -c " + shellQuote(strings.ReplaceAll(guestSnapshotScript, "\t", "")) + " contain"
 
-func copyGuestSnapshots(ctx context.Context, con *console, snapshots []GuestSnapshot) error {
+func copyGuestSnapshots(ctx context.Context, con *console, snapshots []snapshot.Snapshot) error {
 	if len(snapshots) == 0 {
 		return nil
 	}
@@ -26,7 +28,7 @@ func copyGuestSnapshots(ctx context.Context, con *console, snapshots []GuestSnap
 	return nil
 }
 
-func guestSnapshotCommand(snapshots []GuestSnapshot) string {
+func guestSnapshotCommand(snapshots []snapshot.Snapshot) string {
 	size := len(guestSnapshotCommandPrefix)
 
 	for index := range snapshots {

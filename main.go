@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/coalaura/contain/internal/mount"
+	"github.com/coalaura/contain/internal/snapshot"
 	"github.com/coalaura/plain/minimal"
 	"github.com/urfave/cli/v3"
 )
@@ -132,8 +134,8 @@ func run(ctx context.Context, command *cli.Command) error {
 	}
 
 	var (
-		mounts         []GuestMount
-		snapshots      []GuestSnapshot
+		mounts         []mount.Mount
+		snapshots      []snapshot.Snapshot
 		startupCommand string
 	)
 
@@ -144,21 +146,21 @@ func run(ctx context.Context, command *cli.Command) error {
 		}
 
 		mountValues := command.StringSlice("mount")
-		additionalMounts := make([]MountConfig, len(mountValues))
+		additionalMounts := make([]mount.Config, len(mountValues))
 
 		for index, value := range mountValues {
-			additionalMounts[index], err = parseMount(value)
+			additionalMounts[index], err = mount.Parse(value)
 			if err != nil {
 				return fmt.Errorf("--mount %q: %w", value, err)
 			}
 		}
 
-		mounts, err = config.GuestMounts(paths.WorkingDirectory, additionalMounts...)
+		mounts, err = mount.Resolve(config.Mounts, paths.WorkingDirectory, additionalMounts...)
 		if err != nil {
 			return err
 		}
 
-		snapshots, err = config.GuestSnapshots(mounts)
+		snapshots, err = snapshot.Resolve(config.Snapshots, mounts)
 		if err != nil {
 			return err
 		}
@@ -179,6 +181,11 @@ func run(ctx context.Context, command *cli.Command) error {
 
 	temporary := command.Bool("temporary")
 
+	err = validateNetworkShares(mounts, snapshots)
+	if err != nil {
+		return err
+	}
+
 	if command.Bool("dry-run") {
 		return printDryRun(command.Writer, config.Machine.disk, mounts, snapshots, startupCommand, temporary)
 	}
@@ -194,8 +201,8 @@ func run(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func printDryRun(output io.Writer, diskPath string, mounts []GuestMount, snapshots []GuestSnapshot, command string, temporary bool) error {
-	inspections := inspectMountTargets(diskPath, mounts)
+func printDryRun(output io.Writer, diskPath string, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
+	inspections := mount.InspectTargets(diskPath, mounts)
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 
 	_, err := fmt.Fprintln(writer, "Mounts:\n  GUEST\tACCESS\tOVERRIDES FILES\tHOST")
@@ -218,7 +225,7 @@ func printDryRun(output io.Writer, diskPath string, mounts []GuestMount, snapsho
 			access = "read-only"
 		}
 
-		_, err = fmt.Fprintf(writer, "  %s\t%s\t%s\t%s\n", mount.GuestPath, access, inspections[index].status, mount.HostPath)
+		_, err = fmt.Fprintf(writer, "  %s\t%s\t%s\t%s\n", mount.GuestPath, access, inspections[index].Status, mount.HostPath)
 		if err != nil {
 			return err
 		}
@@ -231,11 +238,11 @@ func printDryRun(output io.Writer, diskPath string, mounts []GuestMount, snapsho
 
 	for index := range inspections {
 		inspection := &inspections[index]
-		if inspection.err == nil {
+		if inspection.Err == nil {
 			continue
 		}
 
-		_, err = fmt.Fprintf(output, "  Cannot inspect %s: %v\n", mounts[index].GuestPath, inspection.err)
+		_, err = fmt.Fprintf(output, "  Cannot inspect %s: %v\n", mounts[index].GuestPath, inspection.Err)
 		if err != nil {
 			return err
 		}

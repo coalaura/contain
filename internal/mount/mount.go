@@ -1,4 +1,4 @@
-package main
+package mount
 
 import (
 	"errors"
@@ -7,15 +7,17 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/coalaura/contain/internal/pathutil"
 )
 
 const (
 	guestProjectsRoot = "/projects"
-	guestConfigRoot   = guestHome + "/.config"
-	guestLocalRoot    = guestHome + "/.local"
+	guestConfigRoot   = pathutil.GuestHome + "/.config"
+	guestLocalRoot    = pathutil.GuestHome + "/.local"
 )
 
-type GuestMount struct {
+type Mount struct {
 	Tag        string
 	GuestPath  string
 	HostPath   string
@@ -23,7 +25,7 @@ type GuestMount struct {
 	Readonly   bool
 }
 
-func ValidateGuestMounts(mounts []GuestMount) error {
+func Validate(mounts []Mount) error {
 	if len(mounts) == 0 {
 		return nil
 	}
@@ -33,7 +35,7 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 	}
 
 	seenTags := make(map[string]bool, len(mounts))
-	seenPaths := make(map[string]*GuestMount, len(mounts))
+	seenPaths := make(map[string]*Mount, len(mounts))
 
 	for index := range mounts {
 		mount := &mounts[index]
@@ -42,7 +44,7 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 			return fmt.Errorf("invalid virtio-fs tag %q", mount.Tag)
 		}
 
-		resolved, err := resolveGuestPath(mount.GuestPath)
+		resolved, err := pathutil.Guest(mount.GuestPath)
 		if err != nil || resolved != mount.GuestPath {
 			return fmt.Errorf("invalid guest mount path %q", mount.GuestPath)
 		}
@@ -72,7 +74,7 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 					continue
 				}
 
-				if guestPathWithin(mount.GuestPath, other.GuestPath) || guestPathWithin(other.GuestPath, mount.GuestPath) {
+				if pathutil.GuestWithin(mount.GuestPath, other.GuestPath) || pathutil.GuestWithin(other.GuestPath, mount.GuestPath) {
 					return fmt.Errorf("overlapping guest mount paths %q and %q", other.GuestPath, mount.GuestPath)
 				}
 			}
@@ -90,7 +92,7 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 					continue
 				}
 
-				if guestPathWithin(mount.GuestPath, other.GuestPath) || guestPathWithin(other.GuestPath, mount.GuestPath) {
+				if pathutil.GuestWithin(mount.GuestPath, other.GuestPath) || pathutil.GuestWithin(other.GuestPath, mount.GuestPath) {
 					return fmt.Errorf("overlapping writable paths %q and %q", other.GuestPath, mount.GuestPath)
 				}
 			}
@@ -116,7 +118,7 @@ func ValidateGuestMounts(mounts []GuestMount) error {
 	return nil
 }
 
-func validateWritableMount(mount, parent *GuestMount) error {
+func validateWritableMount(mount, parent *Mount) error {
 	if parent == nil || parent.ParentPath != "" || !parent.Readonly {
 		return fmt.Errorf("writable mount %q requires a preceding read-only parent mount", mount.GuestPath)
 	}
@@ -185,11 +187,6 @@ func localWritablePath(relative string) (string, error) {
 	}
 
 	return local, nil
-}
-
-func guestPathWithin(value, parent string) bool {
-	suffix, found := strings.CutPrefix(value, parent)
-	return found && (suffix == "" || suffix[0] == '/')
 }
 
 func validMountIdentifier(name string) bool {

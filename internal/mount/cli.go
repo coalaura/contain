@@ -1,14 +1,16 @@
-package main
+package mount
 
 import (
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/coalaura/contain/internal/pathutil"
 )
 
-func parseMount(value string) (MountConfig, error) {
-	mount := MountConfig{Host: value}
+func Parse(value string) (Config, error) {
+	mount := Config{Host: value}
 	name := ""
 	volume := filepath.VolumeName(value)
 	offset := 0
@@ -28,7 +30,7 @@ func parseMount(value string) (MountConfig, error) {
 		options := value[separator+1:]
 
 		if options == "" {
-			return MountConfig{}, errors.New("expected a mount name or ro/rw after ':'")
+			return Config{}, errors.New("expected a mount name or ro/rw after ':'")
 		}
 
 		var (
@@ -43,19 +45,19 @@ func parseMount(value string) (MountConfig, error) {
 		}
 
 		if (explicitMode || mode != "") && mode != "ro" && mode != "rw" {
-			return MountConfig{}, fmt.Errorf("invalid mount mode %q: expected ro or rw", mode)
+			return Config{}, fmt.Errorf("invalid mount mode %q: expected ro or rw", mode)
 		}
 
 		mount.Readonly = mode == "ro"
 	}
 
 	if mount.Host == "" {
-		return MountConfig{}, errors.New("host directory cannot be empty")
+		return Config{}, errors.New("host directory cannot be empty")
 	}
 
-	host, err := resolveHostPath(mount.Host)
+	host, err := pathutil.Host(mount.Host)
 	if err != nil {
-		return MountConfig{}, fmt.Errorf("resolve host directory: %w", err)
+		return Config{}, fmt.Errorf("resolve host directory: %w", err)
 	}
 
 	mount.Host = host
@@ -63,15 +65,19 @@ func parseMount(value string) (MountConfig, error) {
 	if name == "" {
 		name = filepath.Base(host)
 		if !validMountName(name) {
-			return MountConfig{}, fmt.Errorf("cannot infer a valid mount name from %q: use HOST:NAME[:ro|rw]", host)
+			return Config{}, fmt.Errorf("cannot infer a valid mount name from %q: use HOST:NAME[:ro|rw]", host)
 		}
 	}
 
 	if !validMountName(name) {
-		return MountConfig{}, fmt.Errorf("invalid mount name %q: use ASCII letters, digits, dots, underscores or hyphens, except '.' and '..'", name)
+		return Config{}, fmt.Errorf("invalid mount name %q: use ASCII letters, digits, dots, underscores or hyphens, except '.' and '..'", name)
 	}
 
 	mount.Guest = guestProjectsRoot + "/" + name
 
 	return mount, nil
+}
+
+func validMountName(name string) bool {
+	return name != "." && name != ".." && validMountIdentifier(name)
 }

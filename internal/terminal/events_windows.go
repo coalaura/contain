@@ -1,4 +1,4 @@
-package main
+package terminal
 
 import (
 	"context"
@@ -108,12 +108,12 @@ func (buffer *consoleInputBuffer) flush(output io.Writer) error {
 	return err
 }
 
-func watchTerminalResize(resize *terminalResize) func() {
+func watchTerminalResize(resize *Resize) func() {
 	// ReadConsoleInputW delivers resize and key events through one reader.
 	return func() {}
 }
 
-func relayConsoleInput(ctx context.Context, input windows.Handle, output io.Writer, resize *terminalResize) error {
+func relayConsoleInput(ctx context.Context, input windows.Handle, output io.Writer, resize *Resize) error {
 	var mode uint32
 
 	err := windows.GetConsoleMode(input, &mode)

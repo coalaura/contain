@@ -32,7 +32,11 @@ mount --bind /dev /mnt/dev
 mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
 
-apk --root /mnt --initdb --no-cache add alpine-base linux-virt bash
+apk --root /mnt --initdb --no-cache add alpine-base linux-virt bash ca-certificates iproute2
+
+mkdir -p /mnt/usr/local/share/ca-certificates
+cp /contain.crt /mnt/usr/local/share/ca-certificates/contain.crt
+chroot /mnt update-ca-certificates
 
 chroot /mnt /bin/sh -eu <<'CONFIGURE'
 for service in devfs dmesg mdev hwdrivers; do
@@ -55,8 +59,6 @@ cat > /etc/network/interfaces <<'NETWORK'
 auto lo
 iface lo inet loopback
 
-auto eth0
-iface eth0 inet dhcp
 NETWORK
 
 printf '/dev/vda / ext4 rw,relatime 0 0\n' > /etc/fstab

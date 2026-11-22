@@ -1,2 +1,4 @@
 /alpine/build
 /guest/resize
+contain
+contain.exe

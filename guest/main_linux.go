@@ -10,12 +10,24 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
 
 func main() {
 	arguments := os.Args[1:]
+	if len(arguments) == 1 && (arguments[0] == "--network" || arguments[0] == "--serve-network") {
+		err := runNetworkHelper(arguments[0] == "--serve-network")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+
+			os.Exit(1)
+		}
+
+		return
+	}
+
 	serving := len(arguments) > 0 && arguments[0] == "--serve"
 
 	if serving {
@@ -46,7 +58,7 @@ func main() {
 
 		ready.Close()
 	} else {
-		err = startResize(controlPath, terminalPath)
+		err = startGuestService("--serve", controlPath, terminalPath)
 	}
 
 	if err != nil {
@@ -55,7 +67,7 @@ func main() {
 	}
 }
 
-func startResize(controlPath, terminalPath string) error {
+func startGuestService(arguments ...string) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -71,7 +83,7 @@ func startResize(controlPath, terminalPath string) error {
 
 	// Re-exec in a new session with no console stdio. The pipe reports startup
 	// failures before the parent returns control to the guest login shell.
-	command := exec.Command(executable, "--serve", controlPath, terminalPath)
+	command := exec.Command(executable, arguments...)
 
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	command.ExtraFiles = []*os.File{writer}
@@ -83,6 +95,8 @@ func startResize(controlPath, terminalPath string) error {
 
 	writer.Close()
 
+	reader.SetReadDeadline(time.Now().Add(20 * time.Second))
+
 	message, err := bufio.NewReader(reader).ReadString('\n')
 	if err == nil && message == "ready\n" {
 		return command.Process.Release()
@@ -92,10 +106,10 @@ func startResize(controlPath, terminalPath string) error {
 	command.Wait()
 
 	if message != "" {
-		return fmt.Errorf("start resize listener: %s", strings.TrimSpace(message))
+		return fmt.Errorf("start guest helper: %s", strings.TrimSpace(message))
 	}
 
-	return fmt.Errorf("start resize listener: %w", err)
+	return fmt.Errorf("start guest helper: %w", err)
 }
 
 func serveResize(controlPath, terminalPath string, ready *os.File) error {
