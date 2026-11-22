@@ -261,11 +261,15 @@ func openGuestTUN() (*os.File, error) {
 }
 
 func configureGuestNetwork() error {
-	// The point-to-point gateway has no neighbor discovery. BusyBox ip lacks nodad,
-	// so disable duplicate-address detection before adding the fixed IPv6 address.
-	err := os.WriteFile("/proc/sys/net/ipv6/conf/contain0/accept_dad", []byte("0\n"), 0644)
-	if err != nil {
-		return fmt.Errorf("disable IPv6 duplicate-address detection on contain0: %w", err)
+	// Configure the static point-to-point link before bringing it up, so Linux
+	// does not send router solicitations or duplicate-address detection probes.
+	settings := [...]string{"accept_ra", "autoconf", "router_solicitations", "accept_dad"}
+
+	for _, setting := range settings {
+		err := os.WriteFile("/proc/sys/net/ipv6/conf/contain0/"+setting, []byte("0\n"), 0644)
+		if err != nil {
+			return fmt.Errorf("disable IPv6 %s on contain0: %w", setting, err)
+		}
 	}
 
 	commands := [][]string{

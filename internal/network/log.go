@@ -27,6 +27,11 @@ type networkEvent struct {
 	result      string
 	status      int
 	started     time.Time
+	source      netip.Addr
+	ipProtocol  byte
+	icmpType    byte
+	icmpCode    byte
+	hasICMP     bool
 }
 
 type networkLogger struct {
@@ -70,6 +75,13 @@ func (logger *networkLogger) record(event networkEvent) {
 
 	logger.field("target", event.target)
 
+	if event.source.IsValid() {
+		logger.buffer = append(logger.buffer, " src="...)
+		logger.buffer = event.source.AppendTo(logger.buffer)
+		logger.buffer = append(logger.buffer, " ip_protocol="...)
+		logger.buffer = strconv.AppendUint(logger.buffer, uint64(event.ipProtocol), 10)
+	}
+
 	if event.destination.IsValid() {
 		logger.buffer = append(logger.buffer, " dst="...)
 
@@ -78,6 +90,13 @@ func (logger *networkLogger) record(event networkEvent) {
 		} else {
 			logger.buffer = event.destination.AppendTo(logger.buffer)
 		}
+	}
+
+	if event.hasICMP {
+		logger.buffer = append(logger.buffer, " icmp_type="...)
+		logger.buffer = strconv.AppendUint(logger.buffer, uint64(event.icmpType), 10)
+		logger.buffer = append(logger.buffer, " icmp_code="...)
+		logger.buffer = strconv.AppendUint(logger.buffer, uint64(event.icmpCode), 10)
 	}
 
 	logger.field("method", event.method)
@@ -173,7 +192,24 @@ func (gateway *Gateway) logDNS(query *dnsmessage.Message, response []byte, start
 
 func (gateway *Gateway) logPacketDrop(parsed networkPacket, err error) {
 	if !errors.Is(err, errNetworkDenied) {
-		gateway.logger.record(networkEvent{protocol: "PACKET", action: "DROP", reason: "malformed or unsupported"})
+		reason := "malformed or unsupported"
+
+		packetError, ok := errors.AsType[networkPacketError](err)
+		if ok {
+			reason = string(packetError)
+		}
+
+		gateway.logger.record(networkEvent{
+			protocol:    "PACKET",
+			action:      "DROP",
+			source:      parsed.source,
+			destination: netip.AddrPortFrom(parsed.destination, parsed.port),
+			ipProtocol:  parsed.protocol,
+			icmpType:    parsed.icmpType,
+			icmpCode:    parsed.icmpCode,
+			hasICMP:     parsed.hasICMP,
+			reason:      reason,
+		})
 
 		return
 	}
