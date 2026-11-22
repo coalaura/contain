@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/coalaura/plain v1.6.6
-	github.com/diskfs/go-diskfs v1.9.4
+	github.com/diskfs/go-diskfs v1.9.5-0.20261122181445-f9c652a4966b
 	github.com/goccy/go-yaml v1.19.2
 	github.com/urfave/cli/v3 v3.14.0
 	golang.org/x/net v0.60.0
@@ -19,6 +19,3 @@ require (
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
-
-// Pending https://github.com/diskfs/go-diskfs/pull/464.
-replace github.com/diskfs/go-diskfs => github.com/coalaura/go-diskfs v0.0.0-20261121230315-e47771e0b005
