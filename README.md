@@ -11,7 +11,7 @@ Run tools and agents in an isolated Linux workspace powered by OpenVMM.
 ## Requirements
 
 - [`openvmm`](https://github.com/microsoft/openvmm/actions/workflows/openvmm-ci.yaml?query=is%3Asuccess+branch%3Amain) available on `PATH` with host virtualization enabled
-- An Alpine image with Bash as its login shell, `ca-certificates`, an IPv6-capable `ip` command (BusyBox or `iproute2`), and the TUN and virtio-vsock kernel modules, as produced by `contain create` or the bundled Alpine builder (see [Guest Image](#guest-image))
+- An Alpine image with Bash as its login shell, `ca-certificates`, an IPv6-capable `ip` command (BusyBox or `iproute2`) and the TUN and virtio-vsock kernel modules, as produced by `contain create` or the bundled Alpine builder (see [Guest Image](#guest-image))
 
 ## Installation
 
@@ -66,20 +66,23 @@ snapshots:
     guest: ~/.config/example/preferences.json
 ```
 
-- The current working directory is always mounted read/write at `/workspace`.
-- Mounts require an explicit `guest` directory, one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin`. For example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`. Replace older `name` + `target` entries with the full `guest` path.
-- Host paths support `~` for the host user's home, including `~\.config\opencode` on Windows. This also works with `--mount` and `machine.source`. Guest `~` means `/root`, the home in the supported Alpine root session; absolute equivalents work too. Dry-run shows the resolved absolute guest paths.
-- `writable` exports existing relative subdirectories read/write beneath a `readonly: true` mount, allowing selective persistence without making the whole mount writable.
-- `snapshots` copies individual host files into the guest once per session, before the shell or command starts. `guest` accepts any absolute guest file path or `~/...`. Missing parent directories are created and existing files are replaced with private (`0600`) copies. Empty files are supported. The guest can modify its copies, but changes are never synchronized with the source files. Copies remain on persistent guest disks until replaced at the next startup; `--temporary` discards them with the rest of the guest disk changes.
-- Go validates host sources, guest path syntax and configured overlaps before starting the VM, including during dry-run. Snapshot paths cannot overlap host mounts or other snapshots; mount paths cannot overlap except for explicit writable overrides. Paths must be canonical, without traversal, trailing slashes or control characters. Validation uses configured paths, not the guest filesystem: it does not resolve guest symlinks or inspect existing mounts. Parent directories in the guest must not redirect configured paths into host mounts.
-- When `machine.command` is set, it runs in Bash inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead. Exiting the interactive shell with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`.
-- Bash history is temporarily disabled during session initialization, keeping internal setup and shutdown commands out of history. The previous history setting is restored before handing over the terminal.
+When `machine.command` is set, it runs in Bash inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead; exiting with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`. Bash history is temporarily disabled during initialization so internal setup and shutdown commands stay out of history, then restored before handing over the terminal.
+
+### Mounts & snapshots
+
+The current working directory is always mounted read/write at `/workspace`. Additional mounts require an explicit `guest` directory one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin` (for example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`). Replace older `name` + `target` entries with the full `guest` path. Setting `writable` on a `readonly: true` mount exports existing relative subdirectories read/write without making the whole mount writable.
+
+Host paths expand `~` to the host user's home (including `~\.config\opencode` on Windows), including in `--mount` and `machine.source`. Guest `~` expands to `/root`, the home in the supported Alpine root session; absolute equivalents work too and dry-run prints the resolved absolute guest paths.
+
+`snapshots` copies individual host files (including empty files) into the guest once per session before the shell or command starts. `guest` accepts any absolute file path or `~/...`; missing parent directories are created and existing files are replaced with private (`0600`) copies. Guest edits are never synced back to the host. Copies remain on persistent guest disks until replaced at the next startup or are discarded by `--temporary`.
+
+Host sources, guest path syntax and configured overlaps are validated before starting the VM, including during dry-run. Paths must be canonical (no traversal, trailing slashes or control characters), snapshots cannot overlap mounts or other snapshots and mounts cannot overlap except for explicit `writable` overrides. Validation checks configured paths only and does not resolve guest symlinks or inspect existing mounts, so guest parent directories must not redirect configured paths into host mounts.
 
 ### Networking
 
-Normal sessions have no Ethernet NIC. A bundled guest helper creates a 1280-byte TUN interface and forwards framed IPv4/IPv6 packets over virtio-vsock to a Go userspace gateway on the host. Networking is ready before the user's command starts, applies to `--plain` and `--temporary`, and fails closed if the helper or transport stops.
+Normal sessions have no Ethernet NIC. A bundled guest helper creates a 1280-byte TUN interface and forwards framed IPv4/IPv6 packets over virtio-vsock to a Go userspace gateway on the host. Networking is ready before the user's command starts, applies to `--plain` and `--temporary` and fails closed if the helper or transport stops.
 
-The guest helper is untrusted: the host independently validates packet lengths, source addresses, checksums, protocols and destinations before forwarding, and enforces destination policy again when opening host sockets.
+The guest helper is untrusted: the host independently validates packet lengths, source addresses, checksums, protocols and destinations before forwarding and enforces destination policy again when opening host sockets.
 
 ```yaml
 network: # under machine
@@ -100,31 +103,86 @@ dns: # under machine, alongside network
   secondary: https://dns.google/dns-query
 ```
 
-- **Modes & rules:** Defaults to `isolated` with `default: deny`. Rules accept IPv4/IPv6 addresses, canonical CIDRs and exact ASCII domain names (use punycode for internationalized names). Domain matching is case-insensitive, ignores a final dot and never expands to subdomains or wildcards: `example.com` does not match `test.example.com`. In `isolated`, `default` applies to both unmatched destination IPs and unmatched DNS names; `deny` overrides `allow` within each rule type. IP-only allow rules do not authorize DNS queries. `open` forwards DNS without domain checks and ignores IP allow/deny lists, while retaining the host/LAN opt-ins below. `closed` blocks all networking, including the host DNS service.
-- **Host access:** `allow_loopback: false` blocks loopback addresses and all addresses assigned to the host's interfaces, including its LAN and public addresses. Set it to `true` to permit host destinations, subject to the mode and IP rules. `allow_lan` alone never grants host access.
-- **LAN access:** `allow_lan: false` blocks other destinations in private IPv4/IPv6 ranges, IPv4 link-local, shared address space (`100.64.0.0/10`) and directly connected interface subnets (including public and VPN subnets). Set it to `true` to permit these destinations, subject to the mode and IP rules. Host destinations are governed separately by `allow_loopback`. Interface discovery fails closed and is refreshed before socket creation, ICMP sends and each outbound UDP datagram.
-- **Host DNS:** The guest's sole configured resolver is the host gateway at `192.0.2.1:53`, supporting UDP and TCP. This service is always allowed except in `closed` mode, even if its IP appears in `deny`. In `isolated`, denied queries receive `REFUSED`; with `default: deny`, only explicitly allowed names are forwarded. `machine.dns.primary` and `.secondary` accept `IP:port`, `domain:port` or an HTTPS DNS-over-HTTPS URL. Bracket IPv6 addresses, include ports for ordinary DNS, and set `secondary: ""` to disable fallback. Ordinary upstream DNS uses UDP with TCP fallback for truncated replies; DoH uses POST with normal TLS verification. The secondary is tried on upstream failure, not on a valid negative answer. Upstream hostnames are bootstrapped through the host's system resolver. These configured host-side upstream connections are exempt from guest network rules, so no DNS-server IP allow rules are needed.
-- **DNS-derived IP grants:** Positive responses are cached in a bounded, session-local in-memory LRU. In `isolated`, A/AAAA answers for the queried name, including addresses reached through its CNAME chain, temporarily authorize those destination IPs. Unrelated records and additional-section addresses do not grant access. CNAME targets need no separate allow entry when included in that response, but an explicitly denied CNAME target is refused; a later independent query for an alias is checked normally. IP denies and host/LAN opt-ins still take precedence. Cache entries and their grants expire at the shortest record TTL in the response, or earlier on eviction; cache hits return reduced TTLs and do not extend grants. Zero-TTL responses and negative answers are not cached and create no grants. Expiry or eviction can interrupt existing connections, and guest-side caching can outlive an evicted grant; explicitly allow stable IPs/CIDRs where that behavior is unsuitable.
-- **Domain-filtering limitations:** This is DNS-assisted IP filtering, not full domain enforcement. Once an IP is allowed, the guest can contact other domains sharing it, use a known IP directly, or use a proxy/tunnel at that IP. A domain deny rule refuses host-resolver queries; it does not globally block that domain's IPs. The guest can use its own DNS, including external port 53 or DoH, if both the resolver IP and the resulting destination IP pass the normal network rules. External DNS ports are not specially blocked, and those responses do not create host DNS grants. Complete domain enforcement would require in-depth packet inspection and protocol-specific handlers, including handling encrypted protocols; that is outside this implementation's scope and will not be implemented.
-- **Routing:** There is no inbound port forwarding. Outbound traffic uses the host's source address and routing, so allowed loopback/private targets can reach host or LAN services; treat any allowed destination (and any proxy/tunnel on it) as a capability.
-- **Protocols:** TCP, UDP and ICMP echo are supported; unknown protocols are rejected even in `open` mode. Fragmented packets, IPv4 options, IPv6 extension headers, multicast, unspecified destinations, scoped IPv6 link-local destinations, ICMP errors and path-MTU discovery are unsupported. Linux echo requires unprivileged ping sockets (`ping_group_range`) and fails rather than elevating privileges; Windows uses the native IP Helper echo API.
-- **HTTPS interception:** Only `isolated` mode with `credentials: opencode` intercepts TCP port 443, supporting HTTP/1.1 and HTTP/2 with incremental streaming, SSE, cancellation and backpressure. Upstream connections are pinned to the original destination IP with standard TLS verification; guest SNI or `Host` cannot redirect traffic. Invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. Certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS on port 443 are unsupported while interception is enabled.
-- **Transparent traffic & QUIC:** With credentials set to `none` (the default), omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently, including UDP port 443 for HTTP/3/QUIC, even if credentials are configured. Credential loading, injection and guest placeholders are inactive in `open` and `closed` modes. UDP port 443 remains blocked in `isolated`, including without credentials; `closed` blocks all networking. Opaque encrypted payloads cannot be inspected, and destination IP restrictions are not a content filter.
-- **Host CA & trust:** Each image has its own CA in `<machine.source>/network/ca/authority.pem`, alongside its disk and boot files (by default under `~/.local/contain/images/alpine/`). The signing key stays under host permissions; only the public certificate is installed into Alpine's trust store (and exported via `NODE_EXTRA_CA_CERTS`). The CA is created when needed and the guest trust store is updated automatically at startup; images need the required packages/modules.
-- **Limits & timeouts:** Sessions are capped at 128 flows, 128 host sockets, 64 concurrent HTTPS requests and 8 HTTP/2 streams per guest connection, with 64 KiB TCP buffers, 16 KiB streaming buffers and 32 KiB header limits. DNS adds a 32-query upstream concurrency cap, a 1024-entry / 8 MiB question-and-response data cache, and at most 64 granted addresses per response. It supports standard single-question IN queries, up to 4 KiB per query and 65535 bytes per response; large UDP replies are truncated for TCP retry. Timeouts are 4s per DNS upstream attempt, 10s other dial/handshake, 20s transport liveness, 30s UDP/DNS idle and 2m TCP/HTTPS idle. Excess traffic is rejected or dropped rather than queued unboundedly.
+#### Modes & access rules
+
+| Mode | DNS | IP rules | Host / LAN opt-ins |
+| --- | --- | --- | --- |
+| `isolated` (default) | Filtered by domain rules (`default` applies to unmatched names) | Filtered by IP/CIDR rules and DNS grants (`default` applies to unmatched IPs) | Enforced |
+| `open` | Forwarded without domain checks | Ignored (TCP/UDP relayed transparently, including UDP 443) | Enforced |
+| `closed` | Blocked (including host DNS) | All networking blocked | All networking blocked |
+
+Sessions default to `isolated` mode with `default: deny`. Rules accept IPv4/IPv6 addresses, canonical CIDRs and exact ASCII domain names (use punycode for internationalized names). Domain matching is case-insensitive, ignores a final dot and never expands to subdomains or wildcards (`example.com` does not match `test.example.com`). Within each rule type, `deny` overrides `allow` and IP-only allow rules do not authorize DNS queries.
+
+- `allow_loopback: false` blocks loopback addresses and all addresses assigned to the host's interfaces (including LAN and public addresses). Set it to `true` to permit host destinations, subject to the mode and IP rules. `allow_lan` alone never grants host access.
+- `allow_lan: false` blocks other destinations in private IPv4/IPv6 ranges, IPv4 link-local, shared address space (`100.64.0.0/10`) and directly connected interface subnets (including public and VPN subnets). Set it to `true` to permit them, subject to the mode and IP rules. Interface discovery fails closed and refreshes before socket creation, ICMP sends and each outbound UDP datagram.
+
+There is no inbound port forwarding. Outbound traffic uses the host's source address and routing, so allowed loopback or private targets can reach host or LAN services; treat any allowed destination (and any proxy/tunnel on it) as a capability.
+
+Only TCP, UDP and ICMP echo are supported; unknown protocols are rejected even in `open` mode. Fragmented packets, IPv4 options, IPv6 extension headers, multicast, unspecified destinations, scoped IPv6 link-local destinations, ICMP errors and path-MTU discovery are unsupported. Linux echo requires unprivileged ping sockets (`ping_group_range`) and fails rather than elevating privileges; Windows uses the native IP Helper echo API.
+
+#### DNS & IP grants
+
+The guest's sole configured resolver is the host gateway at `192.0.2.1:53` (UDP and TCP), which is always allowed except in `closed` mode even if its IP appears in `deny`. In `isolated`, denied queries receive `REFUSED` and with `default: deny` only explicitly allowed names are forwarded.
+
+`machine.dns.primary` and `.secondary` accept `IP:port`, `domain:port` or an HTTPS DNS-over-HTTPS URL. Bracket IPv6 addresses, include ports for ordinary DNS and set `secondary: ""` to disable fallback. Ordinary DNS uses UDP with TCP fallback for truncated replies; DoH uses POST with normal TLS verification. The secondary is tried on upstream failure, not on a valid negative answer. Upstream hostnames resolve through the host's system resolver and these host-side connections are exempt from guest network rules so no DNS-server IP allow rules are needed.
+
+Positive responses are cached in a bounded, session-local in-memory LRU. In `isolated`, A/AAAA answers for the queried name (including addresses reached through its CNAME chain) temporarily authorize those destination IPs; unrelated and additional-section records do not. CNAME targets need no separate allow entry when included in that response, though an explicitly denied CNAME target is refused and later direct queries for an alias are checked normally. IP denies and host/LAN opt-ins still take precedence.
+
+Cache entries and grants expire at the shortest record TTL in the response or earlier on eviction; cache hits return reduced TTLs and do not extend grants. Zero-TTL and negative answers are not cached and create no grants. Expiry or eviction can interrupt existing connections and guest-side caching can outlive an evicted grant; explicitly allow stable IPs/CIDRs where needed.
+
+This is DNS-assisted IP filtering, not full domain enforcement. Once an IP is allowed, the guest can contact other domains sharing it, use a known IP directly or use a proxy/tunnel at that IP and a domain deny rule refuses host-resolver queries rather than globally blocking that domain's IPs. External DNS (port 53 or DoH) works if both the resolver IP and resulting destination IP pass normal network rules, without creating host DNS grants. Deep packet inspection and protocol-specific encrypted-traffic handlers are outside this implementation's scope and will not be implemented.
+
+#### HTTPS interception & CA
+
+Only `isolated` mode with `credentials: opencode` intercepts TCP port 443, supporting HTTP/1.1 and HTTP/2 with incremental streaming, SSE, cancellation and backpressure. Upstream connections are pinned to the original destination IP with standard TLS verification so guest SNI or `Host` cannot redirect traffic; invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. Certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS on port 443 are unsupported while interception is enabled.
+
+With `credentials` set to `none` (default), omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently (including UDP port 443 for HTTP/3/QUIC) and disables credential loading, injection and guest placeholders (as does `closed`). UDP port 443 remains blocked in `isolated`, including without credentials. Opaque encrypted payloads cannot be inspected and destination IP restrictions are not a content filter.
+
+Each image has its own CA at `<machine.source>/network/ca/authority.pem`, alongside its disk and boot files (by default under `~/.local/contain/images/alpine/`). The signing key stays under host permissions; only the public certificate is installed into Alpine's trust store and exported via `NODE_EXTRA_CA_CERTS`. The CA is created when needed and the guest trust store updates automatically at startup.
+
+#### Limits & timeouts
+
+| Category | Limits |
+| --- | --- |
+| Concurrency | 128 flows, 128 host sockets, 64 concurrent HTTPS requests, 8 HTTP/2 streams per guest connection |
+| Buffers & headers | 64 KiB TCP buffers, 16 KiB streaming buffers, 32 KiB header limit |
+| DNS | 32 concurrent upstream queries, 1024-entry / 8 MiB cache, 64 granted addresses per response; standard single-question `IN` queries up to 4 KiB, responses up to 65535 bytes (large UDP replies truncated for TCP retry) |
+| Timeouts | 4s per DNS upstream attempt, 10s other dial/handshake, 20s transport liveness, 30s UDP/DNS idle, 2m TCP/HTTPS idle |
+
+Excess traffic is rejected or dropped rather than queued unboundedly.
 
 ### Host OpenCode credentials
 
 Set `machine.network.credentials: opencode` with `mode: isolated` to use host API keys (OpenAI, OpenRouter, Anthropic, Groq, Mistral, DeepSeek) or host OAuth logins (OpenAI/ChatGPT, Anthropic) without exposing real secrets to the VM.
 
-- **Credential sources:** Reads host `OPENCODE_AUTH_CONTENT` first (matching OpenCode 1.19.6 auth CLI precedence), then `$XDG_DATA_HOME/opencode/auth.json` or `~/.local/share/opencode/auth.json`. Supports `type: oauth` (`access`, `refresh`, `expires` in Unix milliseconds, optional OpenAI `accountId`). Does not import SQLite integration credentials. Malformed entries, OAuth for other providers, `wellknown` entries and unrecognized providers fail startup.
-- **Placeholders & injection:** The guest receives non-secret placeholder entries (with distant OAuth expiry) and, for OAuth, `OPENCODE_CONFIG_CONTENT` with placeholder SDK keys and OpenAI's Codex base URL; normal on-disk config still applies. Real keys, tokens, account IDs and the CA private key never enter the guest or gateway logs. Auth is replaced only for exact approved TLS identities and API paths over independently verified upstream TLS; IP policy still applies, and redirects are never followed with injected auth.
-- **API-key scope:** Host API keys authorize only exact `POST` inference paths and `GET` model lists: OpenAI `/v1/chat/completions`, `/v1/responses`, `/v1/responses/compact`, `/v1/models`; OpenRouter `/api/v1/chat/completions`, `/api/v1/responses`, `/api/v1/models`; Anthropic `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`; Groq `/openai/v1/chat/completions`, `/openai/v1/models`; Mistral `/v1/chat/completions`, `/v1/fim/completions`, `/v1/models`; DeepSeek `/chat/completions`, `/models` and their `/v1` equivalents. Other operations on a provider with a loaded host key receive HTTP 403, including file access, stored-response retrieval, batch jobs and account management. Encoded path aliases are rejected. All guest processes can use the permitted operations, so inference usage still consumes the host account's quota.
-- **OpenAI OAuth:** Authorizes `POST https://chatgpt.com/backend-api/codex/responses` and `/responses/compact` with host-managed `ChatGPT-Account-Id` when available. It is not an `api.openai.com` API key; use a Responses/Codex-compatible model.
-- **Anthropic OAuth:** Authorizes `POST https://api.anthropic.com/v1/messages` and `/v1/messages/count_tokens`, replacing `X-Api-Key` with bearer auth and adding `anthropic-beta: oauth-2025-04-20`. Provider scopes, subscription eligibility and client restrictions still apply; `contain` does not impersonate Claude Code, rewrite prompts/tool names, or translate incompatible protocols.
-- **Host-only refresh:** Runs on the host shortly before expiry against the fixed OpenAI or Anthropic token endpoint with normal TLS verification and no redirects. Refresh uses the same host DNS resolver, domain rules, cache and temporary IP grants as guest queries, and resolved IPs must pass destination policy. With `default: deny`, allow the inference domains plus `auth.openai.com` for OpenAI or `console.anthropic.com` for Anthropic; no upstream DNS-server IP rules are needed. Failed refreshes fail the request with a short retry cooldown; proxied requests are never buffered or replayed.
-- **Rotation storage & locking:** Rotated tokens are journaled in owner-only `~/.local/contain/network/auth` before atomic writeback to file-backed OpenCode logins (preserving unknown fields and other providers). This is host-account state shared across images so they use the same rotation journal and refresh lock. For env-supplied credentials, the journal retains rotations across restarts for the same original value without updating the parent environment. The persistent `lock` file provides a stable OS-level lock while `tokens.json` is atomically replaced; its presence does not mean a session is running, and the OS releases the lock when its handle closes. This serializes `contain` refreshes for the same data directory, but host OpenCode does not take that lock: avoid concurrent refreshes between host OpenCode and `contain`, restart `contain` after changing accounts, and keep the rotation store private and persistent.
-- **Isolation boundary:** Do not mount or snapshot host credentials into the guest; known OpenCode credential, rotation-store and CA paths (including containing directories) are rejected. The managed `images/` tree and the configured image directory are also host-only, including when `machine.source` points outside the managed tree. This is not a general secret scanner: remove credentials from old guest disks and audit other shared files. Same-user host processes and approved providers remain trusted.
+`contain` reads host `OPENCODE_AUTH_CONTENT` first (matching OpenCode 1.19.6 auth CLI precedence), then `$XDG_DATA_HOME/opencode/auth.json` or `~/.local/share/opencode/auth.json`. It supports `type: oauth` (`access`, `refresh`, `expires` in Unix milliseconds, optional OpenAI `accountId`) and does not import SQLite integration credentials. Malformed entries, OAuth for other providers, `wellknown` entries and unrecognized providers fail startup.
+
+The guest receives non-secret placeholder entries (with distant OAuth expiry) and, for OAuth, `OPENCODE_CONFIG_CONTENT` with placeholder SDK keys and OpenAI's Codex base URL; normal on-disk config still applies. Real keys, tokens, account IDs and the CA private key never enter the guest or gateway logs. Auth is replaced only for exact approved TLS identities and API paths over independently verified upstream TLS; IP policy still applies and redirects are never followed with injected auth.
+
+#### Allowed endpoints
+
+| Provider | Auth type | Permitted paths | Notes |
+| --- | --- | --- | --- |
+| OpenAI | API key | `POST /v1/chat/completions`, `/v1/responses`, `/v1/responses/compact`; `GET /v1/models` | |
+| OpenRouter | API key | `POST /api/v1/chat/completions`, `/api/v1/responses`; `GET /api/v1/models` | |
+| Anthropic | API key | `POST /v1/messages`, `/v1/messages/count_tokens`; `GET /v1/models` | |
+| Groq | API key | `POST /openai/v1/chat/completions`; `GET /openai/v1/models` | |
+| Mistral | API key | `POST /v1/chat/completions`, `/v1/fim/completions`; `GET /v1/models` | |
+| DeepSeek | API key | `POST /chat/completions`, `/v1/chat/completions`; `GET /models`, `/v1/models` | |
+| OpenAI (`chatgpt.com`) | OAuth | `POST /backend-api/codex/responses`, `/backend-api/codex/responses/compact` | Adds host-managed `ChatGPT-Account-Id` when available; not an `api.openai.com` key (use a Responses/Codex-compatible model) |
+| Anthropic (`api.anthropic.com`) | OAuth | `POST /v1/messages`, `/v1/messages/count_tokens` | Replaces `X-Api-Key` with bearer auth and adds `anthropic-beta: oauth-2025-04-20` |
+
+Other operations on a provider with a loaded host key receive HTTP 403 (including file access, stored-response retrieval, batch jobs and account management) and encoded path aliases are rejected. All guest processes can use the permitted operations, so inference still consumes the host account's quota. For Anthropic OAuth, provider scopes, subscription eligibility and client restrictions still apply; `contain` does not impersonate Claude Code, rewrite prompts/tool names or translate incompatible protocols.
+
+#### OAuth refresh & isolation
+
+OAuth refresh runs on the host shortly before expiry against the fixed OpenAI or Anthropic token endpoint with normal TLS verification and no redirects. Refresh uses the same host DNS resolver, domain rules, cache and temporary IP grants as guest queries and resolved IPs must pass destination policy. With `default: deny`, allow the inference domains plus `auth.openai.com` (OpenAI) or `console.anthropic.com` (Anthropic); no upstream DNS-server IP rules are needed. Failed refreshes fail the request with a short retry cooldown; proxied requests are never buffered or replayed.
+
+Rotated tokens are journaled in owner-only `~/.local/contain/network/auth` before atomic writeback to file-backed OpenCode logins (preserving unknown fields and other providers). This host-account state is shared across images; for env-supplied credentials, rotations are retained across restarts for the same original value without updating the parent environment.
+
+A persistent `lock` file provides a stable OS-level lock while `tokens.json` is atomically replaced (its presence does not mean a session is running and the OS releases it when its handle closes). Because host OpenCode does not take this lock, avoid concurrent refreshes between host OpenCode and `contain`, restart `contain` after changing accounts and keep the rotation store private and persistent.
+
+Do not mount or snapshot host credentials into the guest: known OpenCode credential, rotation-store and CA paths (including containing directories) are rejected. The managed `images/` tree and the configured image directory are also host-only, including when `machine.source` points outside the managed tree. This is not a general secret scanner: remove credentials from old guest disks and audit other shared files. Same-user host processes and approved providers remain trusted.
 
 ## Usage
 
@@ -138,14 +196,18 @@ contain create [--size 8G] [--tools]
 | Flag | Description |
 | --- | --- |
 | `--shell` | Start an interactive shell instead of the configured command. |
-| `--plain` | Start an interactive shell at `/`, skipping all workspace, configured and CLI mounts, snapshots, and startup commands. Takes precedence over `--shell`, `--run` and `--mount`; can be combined with `--temporary` and `--dry-run`. |
+| `--plain` | Start an interactive shell at `/`, skipping all workspace, configured and CLI mounts, snapshots and startup commands. Takes precedence over `--shell`, `--run` and `--mount`; can be combined with `--temporary` and `--dry-run`. |
 | `--run COMMAND` | Run a single-line shell command instead of the configured command. Cannot be combined with `--shell`. |
 | `--mount HOST[:NAME][:ro\|rw]` | Add a session-only mount under `/projects/<name>`. Repeatable; defaults to read/write and infers `NAME` from the host directory basename. |
 | `--temporary`, `--temp` | Discard guest disk changes on exit using an OpenVMM memory-backed diff layer. `disk.raw` stays untouched; writable host mounts still persist. |
 | `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, whether they hide existing guest files, snapshots, disk mode and command without starting the VM. |
 | `--help` | Show command-specific help. |
 
-Dry-run inspects `disk.raw` read-only. `OVERRIDES FILES` is `yes` when a mount destination contains any file, including an empty file, anywhere below it; trees containing only empty directories count as empty. Symlinks and other non-directory entries count as content. Writable overrides show `n/a (parent mount)` because they cover a host export rather than the guest disk. Unreadable destinations or symlinks in the destination path show `unknown` with a reason. This is an offline preview of the disk, not a check of paths created or changed during boot, and does not change mounting behavior.
+Dry-run inspects `disk.raw` read-only as an offline preview (it does not account for paths created or changed during boot and does not change mounting behavior). In the `OVERRIDES FILES` column:
+
+- `yes` - the mount destination contains any file (including an empty file), symlink or other non-directory entry anywhere below it; trees containing only empty directories count as empty.
+- `n/a (parent mount)` - a `writable` override covering a host export rather than the guest disk.
+- `unknown` - an unreadable destination or a symlink in the destination path (shown with a reason).
 
 ### Examples
 
@@ -185,13 +247,13 @@ contain create --size 16G  # custom disk size
 contain create --tools     # include development tools and dependencies
 ```
 
-This downloads the latest stable Alpine netboot kernel and initramfs, formats a raw ext4 disk in Go and installs `alpine-base`, `linux-virt`, Bash, `ca-certificates` and `iproute2` inside a RAM-booted VM. Bash is the default login shell, including without `--tools`. No host-side Linux formatting or mounting tools are needed; disk sizes use binary units and must be at least 512 MiB.
+This downloads the latest stable Alpine netboot kernel, initramfs and matching module archive, formats a raw ext4 disk in Go (minimum 512 MiB, binary units) and installs `alpine-base`, `linux-virt`, Bash (default login shell, including without `--tools`), `ca-certificates` and `iproute2` inside a RAM-booted VM. Installed boot files are exported over virtio-fs; no host-side Linux formatting or mounting tools are needed.
 
-The installer downloads Alpine's matching module archive and exports the installed boot files through virtio-fs. Internet access is required on the host and in the guest: provisioning deliberately retains unrestricted Consomme networking to install Alpine before the normal-session gateway exists (`machine.network` applies to normal sessions, not `contain create`).
+Internet access is required on the host and in the guest: provisioning deliberately retains unrestricted Consomme networking to install Alpine before the normal-session gateway exists (`machine.network` applies to normal sessions, not `contain create`).
 
-With `--tools`, an extra step inside Alpine installs common packages including Python, C/C++ build tools, Git and shell utilities. It installs the latest [Tap](https://github.com/coalaura/tap), then uses `tap get` for Go, PACE, Zig, Bun's musl build, builder, vet and ffwebp's full build. Their binary directories are added to the guest's login `PATH`.
+With `--tools`, an extra step installs common packages (Python, C/C++ build tools, Git and shell utilities) and the latest [Tap](https://github.com/coalaura/tap), then uses `tap get` for Go, PACE, Zig, Bun's musl build, builder, vet and ffwebp's full build, adding their binary directories to the guest's login `PATH`.
 
-The completed `disk.raw`, `vmlinuz-virt`, `initramfs-virt` and private `network/ca/` directory are stored together in `~/.local/contain/images/alpine/`, the default `machine.source`, with login `root` / `alpine`. Existing image directories are refused. If you already have a configuration, set its `machine.source` to this directory. Temporary guest-helper and snapshot exports are created inside the configured image directory and removed after each session. Installer output is captured in `~/.local/contain/logs/contain-create-<session>.log`, using a 12-character lowercase hex session ID.
+The completed `disk.raw`, `vmlinuz-virt`, `initramfs-virt` and private `network/ca/` directory are stored in `~/.local/contain/images/alpine/` (the default `machine.source`, login `root` / `alpine`). Existing image directories are refused; if you already have a configuration, point `machine.source` at this directory. Temporary guest-helper and snapshot exports are created inside the configured image directory and removed after each session and installer output is captured in `~/.local/contain/logs/contain-create-<session>.log` using a 12-character lowercase hex session ID.
 
 The `alpine/` directory also includes helper scripts for building an image on a Linux host:
 
@@ -208,7 +270,13 @@ An optional `./prepare-vm.sh` script is also included to preinstall common devel
 ## Notes
 
 - Console communication uses a per-session named pipe on Windows and a Unix domain socket on Linux and macOS.
-- Terminal dimensions are synchronized at startup and on host resize events, using `SIGWINCH` on Unix and console input events on Windows. A bundled Go helper receives updates over COM2 and resizes `/dev/hvc0`; existing images do not need rebuilding.
-- Session logs are written to `~/.local/contain/logs/contain-<session>.log`, with separate network logs at `contain-network-<session>.log`. Both share a 12-character lowercase hex session ID generated at startup and both paths are printed. Network logs contain UTC timestamps, gateway lifecycle events, TCP/UDP connection decisions, ICMP results, packet drops, DNS results (including cache hits), and intercepted TLS/HTTPS outcomes. HTTPS entries record the host, method, status and elapsed time on completion, including streaming responses; transparent HTTPS has connection-level entries only. Headers, URL paths/queries, credentials and payloads are never logged. Peer-controlled names are bounded and escaped. Logging is capped at 100 events per second, with a suppressed-event count written on the next event after the window ends or at shutdown.
-- Each session keeps a current `.log` and previous `.1.log` for each of its session and network logs (at most four files total). When a current file is full, its previous file is deleted, the current file becomes the previous file, and a new current file is opened. `logs.max_size_mib` limits each file (default 10 MiB, range 1-1024). Installer logs use the same rotation with a fixed 10 MiB per-file limit because `contain create` does not load the VM configuration. Completed sessions' logs remain on disk; rotation limits apply separately to each session.
+- Terminal dimensions sync at startup and on host resize events (`SIGWINCH` on Unix, console input events on Windows). A bundled Go helper receives updates over COM2 and resizes `/dev/hvc0`; existing images do not need rebuilding.
 - Empty mountpoint directories are removed automatically on unmount and normal guest shutdown; their parent directories are preserved.
+
+### Logging
+
+Session logs are written to `~/.local/contain/logs/contain-<session>.log` and network logs to `contain-network-<session>.log`, sharing a 12-character lowercase hex session ID printed at startup. Network logs record UTC timestamps, gateway lifecycle events, TCP/UDP connection decisions, ICMP results, packet drops, DNS results (including cache hits) and intercepted TLS/HTTPS outcomes (host, method, status and elapsed time on completion, including streaming responses; transparent HTTPS logs connection-level entries only).
+
+Headers, URL paths/queries, credentials and payloads are never logged and peer-controlled names are bounded and escaped. Logging is capped at 100 events per second, writing a suppressed-event count on the next event after the window ends or at shutdown.
+
+Each session keeps a current `.log` and previous `.1.log` for both session and network logs (at most four files total). When a current file reaches `logs.max_size_mib` (default 10 MiB, range 1-1024), `.1.log` is deleted, `.log` becomes `.1.log` and a new `.log` is opened. Installer logs use the same rotation with a fixed 10 MiB limit because `contain create` does not load the VM configuration. Completed sessions' logs remain on disk and rotation limits apply separately per session.
