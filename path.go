@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,10 @@ func ResolvePaths() (*Paths, error) {
 	}
 
 	bin, err := exec.LookPath("openvmm")
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, errors.New("openvmm not found in PATH. Download the artifact for your platform from the latest successful CI run and add it to PATH:\nhttps://github.com/microsoft/openvmm/actions/workflows/openvmm-ci.yaml?query=is%3Asuccess+branch%3Amain")
+	}
+
 	if err != nil {
 		return nil, err
 	}
