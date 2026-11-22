@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type networkProvider struct {
@@ -23,11 +24,31 @@ type networkProvider struct {
 type networkAuth struct {
 	Type string `json:"type"`
 	Key string `json:"key,omitempty"`
+	Access string `json:"access,omitempty"`
+	Refresh string `json:"refresh,omitempty"`
+	Expires int64 `json:"expires,omitempty"`
+	AccountID string `json:"accountId,omitempty"`
 }
 
 type Credentials struct {
 	keys map[string]string
 	placeholder string
+	oauth map[string]*oauthCredential
+	store *oauthStore
+	configuration string
+}
+
+type oauthGuestConfiguration struct {
+	Provider map[string]oauthGuestProvider `json:"provider"`
+}
+
+type oauthGuestProvider struct {
+	Options oauthGuestOptions `json:"options"`
+}
+
+type oauthGuestOptions struct {
+	APIKey string `json:"apiKey"`
+	BaseURL string `json:"baseURL,omitempty"`
 }
 
 var networkProviders = []networkProvider{
@@ -43,9 +64,47 @@ func (credentials *Credentials) Placeholder() string {
 	return credentials.placeholder
 }
 
-func (credentials *Credentials) inject(request *http.Request, identity string) {
+func (credentials *Credentials) Configuration() string {
+	return credentials.configuration
+}
+
+func (credentials *Credentials) inject(request *http.Request, identity string, gateway *Gateway) error {
 	if credentials == nil {
-		return
+		return nil
+	}
+
+	for name, credential := range credentials.oauth {
+		if !oauthDestination(name, identity, request) {
+			if name == "openai" && (identity == "api.openai.com" || identity == "chatgpt.com" && strings.HasPrefix(request.URL.Path, "/backend-api/codex/")) {
+				return oauthFailure("OpenAI OAuth requires a supported ChatGPT Codex Responses endpoint")
+			}
+
+			if name == "anthropic" && identity == "api.anthropic.com" {
+				return oauthFailure("Anthropic OAuth supports POST /v1/messages and /v1/messages/count_tokens only")
+			}
+
+			continue
+		}
+
+		auth, err := credential.authorization(request.Context(), credentials.store, name, gateway)
+		if err != nil {
+			return err
+		}
+
+		request.Header.Del("X-Api-Key")
+		request.Header.Set("Authorization", "Bearer "+auth.Access)
+
+		if name == "openai" {
+			request.Header.Del("ChatGPT-Account-Id")
+
+			if auth.AccountID != "" {
+				request.Header.Set("ChatGPT-Account-Id", auth.AccountID)
+			}
+		} else {
+			addOAuthBeta(request.Header, "oauth-2025-04-20")
+		}
+
+		return nil
 	}
 
 	for index := range networkProviders {
@@ -63,12 +122,18 @@ func (credentials *Credentials) inject(request *http.Request, identity string) {
 
 		request.Header.Set(provider.header, key)
 
-		return
+		return nil
 	}
+
+	return nil
 }
 
-func LoadCredentials(adapter string) (*Credentials, error) {
-	credentials := &Credentials{keys: make(map[string]string), placeholder: "{}"}
+func LoadCredentials(adapter, dataDirectory string) (*Credentials, error) {
+	credentials := &Credentials{
+		keys: make(map[string]string),
+		placeholder: "{}",
+		oauth: make(map[string]*oauthCredential, 2),
+	}
 
 	if adapter == "" {
 		return credentials, nil
@@ -118,8 +183,27 @@ func LoadCredentials(adapter string) (*Credentials, error) {
 			}
 		}
 
-		if !supported || auth.Type != "api" {
-			return nil, fmt.Errorf("OpenCode provider %q: unsupported provider or credential type (only approved API-key providers are supported)", name)
+		if !supported {
+			return nil, fmt.Errorf("OpenCode provider %q: unsupported provider", name)
+		}
+
+		if auth.Type == "oauth" {
+			if name != "openai" && name != "anthropic" {
+				return nil, fmt.Errorf("OpenCode provider %q: OAuth is unsupported", name)
+			}
+
+			if !validOAuthAuth(auth) {
+				return nil, fmt.Errorf("OpenCode provider %q: invalid OAuth credentials; log in again on the host", name)
+			}
+
+			credentials.oauth[name] = &oauthCredential{auth: auth, gate: make(chan struct{}, 1)}
+			placeholders[name] = networkAuth{Type: "oauth", Access: "contain-host-managed", Refresh: "contain-host-managed", Expires: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()}
+
+			continue
+		}
+
+		if auth.Type != "api" {
+			return nil, fmt.Errorf("OpenCode provider %q: unsupported credential type", name)
 		}
 
 		if auth.Key == "" || len(auth.Key) > 16384 || strings.ContainsAny(auth.Key, "\r\n\x00") {
@@ -131,7 +215,7 @@ func LoadCredentials(adapter string) (*Credentials, error) {
 	}
 
 	if len(placeholders) == 0 {
-		return nil, errors.New("no supported OpenCode API-key credentials found on host")
+		return nil, errors.New("no supported OpenCode credentials found on host")
 	}
 
 	encoded, err := json.Marshal(placeholders)
@@ -140,6 +224,34 @@ func LoadCredentials(adapter string) (*Credentials, error) {
 	}
 
 	credentials.placeholder = string(encoded)
+
+	if len(credentials.oauth) > 0 {
+		credentials.store, err = newOAuthStore(dataDirectory, source, data, exists)
+		if err != nil {
+			return nil, err
+		}
+
+		// Keep the OAuth client path active, but never give its refresh code a real token.
+		// The base URL also covers clients without a built-in Codex endpoint override.
+		configuration := oauthGuestConfiguration{Provider: make(map[string]oauthGuestProvider, len(credentials.oauth))}
+
+		for name := range credentials.oauth {
+			options := oauthGuestOptions{APIKey: "contain-host-managed"}
+
+			if name == "openai" {
+				options.BaseURL = "https://chatgpt.com/backend-api/codex"
+			}
+
+			configuration.Provider[name] = oauthGuestProvider{Options: options}
+		}
+
+		encoded, err = json.Marshal(configuration)
+		if err != nil {
+			return nil, err
+		}
+
+		credentials.configuration = string(encoded)
+	}
 
 	return credentials, nil
 }

@@ -14,7 +14,7 @@ func ValidateShares(dataDirectory string, directories, files []string) error {
 		return err
 	}
 
-	protected := []string{filepath.Join(dataDirectory, "network-ca"), filepath.Join(dataDirectory, "network-ca", "authority.pem"), auth}
+	protected := []string{filepath.Join(dataDirectory, "network-ca"), filepath.Join(dataDirectory, "network-ca", "authority.pem"), filepath.Join(dataDirectory, "network-auth"), filepath.Join(dataDirectory, "network-auth", "tokens.json"), auth}
 
 	for _, filename := range protected {
 		private, pathErr := canonicalNetworkPath(filename)

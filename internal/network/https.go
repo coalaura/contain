@@ -115,7 +115,12 @@ func (proxy *networkHTTPS) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 	removeNetworkHopHeaders(outgoing.Header)
 
-	proxy.gateway.credentials.inject(outgoing, proxy.identity)
+	err := proxy.gateway.credentials.inject(outgoing, proxy.identity, proxy.gateway)
+	if err != nil {
+		http.Error(writer, oauthPublicError(err), http.StatusBadGateway)
+
+		return
+	}
 
 	response, err := proxy.transport.RoundTrip(outgoing)
 	if err != nil {
