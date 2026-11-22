@@ -16,7 +16,10 @@ import (
 	"github.com/coalaura/contain/internal/terminal"
 )
 
-const shutdownGrace = 2 * time.Second
+const (
+	shutdownGrace        = 2 * time.Second
+	networkShutdownGrace = 10 * time.Second
+)
 
 func RunOpenVMM(ctx context.Context, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
 	log.Stepln("Starting VM...")
@@ -191,14 +194,15 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snap
 	// The gateway independently closes all host connections on transport failure.
 	watchNetwork := make(chan struct{})
 
+	var networkErr error
+
 	go func() {
 		defer close(watchNetwork)
 
-		select {
-		case <-gateway.Done():
+		networkErr = waitNetworkShutdown(processCtx, gateway.Done(), exited)
+		if networkErr != nil {
 			stopConsole()
 			stopProcess()
-		case <-exited:
 		}
 	}()
 
@@ -255,11 +259,37 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snap
 
 	select {
 	case <-exited:
-		return errors.Join(relayErr, processErr)
+		<-watchNetwork
+
+		return errors.Join(relayErr, networkErr, processErr)
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
 		return relayErr
+	}
+}
+
+func waitNetworkShutdown(ctx context.Context, disconnected, exited <-chan struct{}) error {
+	select {
+	case <-exited:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-disconnected:
+	}
+
+	// Poweroff stops the guest network helper before the VM exits. The gateway
+	// has already closed host connections, so allow guest shutdown to finish.
+	timer := time.NewTimer(networkShutdownGrace)
+	defer timer.Stop()
+
+	select {
+	case <-exited:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return errors.New("guest network disconnected without VM shutdown")
 	}
 }
 
