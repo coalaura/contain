@@ -10,7 +10,7 @@ Run tools and agents in an isolated Linux workspace powered by OpenVMM.
 
 ## Requirements
 
-- `openvmm` available on `PATH` with host virtualization enabled
+- [`openvmm`](https://github.com/microsoft/openvmm/actions/workflows/openvmm-ci.yaml?query=is%3Asuccess+branch%3Amain) available on `PATH` with host virtualization enabled
 - An Alpine image with Bash as its login shell, `ca-certificates`, an IPv6-capable `ip` command (BusyBox or `iproute2`), and the TUN and virtio-vsock kernel modules, as produced by `contain create` or the bundled Alpine builder (see [Guest Image](#guest-image))
 
 ## Installation
