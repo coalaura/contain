@@ -43,6 +43,8 @@ machine:
     allow: []
     deny: []
     credentials: "" # optional: opencode
+    allow_loopback: false # access to the host itself
+    allow_lan: false # access to private and directly connected networks
 
 mounts:
   - host: /path/to/downloads
@@ -77,6 +79,8 @@ The guest helper is untrusted: the host independently validates packet lengths, 
 network: # under machine
   mode: isolated
   default: deny
+  allow_loopback: false
+  allow_lan: false
   allow:
     - 1.1.1.1
     - 2606:4700:4700::1111
@@ -86,16 +90,19 @@ network: # under machine
     - 169.254.0.0/16
 ```
 
-- **Modes & rules:** Defaults to `isolated` with `default: deny` (no external access). `open` permits supported outbound traffic without IP filtering; `closed` blocks all external networking. In `isolated`, explicit `deny` always wins (`default: deny` requires an `allow` match; `default: allow` permits anything not denied). Rules accept IPv4/IPv6 addresses or canonical CIDRs only, not domains.
+- **Modes & rules:** Defaults to `isolated` with `default: deny` (no external access). `open` ignores IP allow/deny lists but still enforces the host/LAN opt-ins below; `closed` blocks all external networking. In `isolated`, explicit `deny` always wins (`default: deny` requires an `allow` match; `default: allow` permits anything not denied). Rules accept IPv4/IPv6 addresses or canonical CIDRs only, not domains.
+- **Host access:** `allow_loopback: false` blocks loopback addresses and all addresses assigned to the host's interfaces, including its LAN and public addresses. Set it to `true` to permit host destinations, subject to the mode and IP rules. `allow_lan` alone never grants host access.
+- **LAN access:** `allow_lan: false` blocks other destinations in private IPv4/IPv6 ranges, IPv4 link-local, shared address space (`100.64.0.0/10`) and directly connected interface subnets (including public and VPN subnets). Set it to `true` to permit these destinations, subject to the mode and IP rules. Host destinations are governed separately by `allow_loopback`. Interface discovery fails closed and is refreshed before socket creation, ICMP sends and each outbound UDP datagram.
 - **DNS & routing:** DNS uses `1.1.1.1` and `2606:4700:4700::1111` under the same IP rules, and allowing DNS does not authorize resolved addresses. There is no inbound port forwarding. Outbound traffic uses the host's source address and routing, so allowed loopback/private targets can reach host or LAN services; treat any allowed destination (and any proxy/tunnel on it) as a capability.
 - **Protocols:** TCP, UDP and ICMP echo are supported; unknown protocols are rejected even in `open` mode. Fragmented packets, IPv4 options, IPv6 extension headers, multicast, unspecified destinations, scoped IPv6 link-local destinations, ICMP errors and path-MTU discovery are unsupported. Linux echo requires unprivileged ping sockets (`ping_group_range`) and fails rather than elevating privileges; Windows uses the native IP Helper echo API.
-- **HTTPS interception:** All TCP port 443 traffic passes through transparent HTTPS interception (HTTP/1.1 and HTTP/2) with incremental streaming, SSE, cancellation and backpressure. Upstream connections are pinned to the packet's original destination IP with standard TLS verification for the TLS identity; guest SNI or `Host` cannot redirect traffic. Invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. UDP port 443 is blocked to prevent QUIC bypass. HTTP/3, certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS on port 443 are unsupported. Other ports carry opaque TCP/UDP: arbitrary encrypted payloads cannot be inspected, and IP filtering is not a content filter.
+- **HTTPS interception:** Only `isolated` mode with `credentials: opencode` intercepts TCP port 443, supporting HTTP/1.1 and HTTP/2 with incremental streaming, SSE, cancellation and backpressure. Upstream connections are pinned to the original destination IP with standard TLS verification; guest SNI or `Host` cannot redirect traffic. Invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. Certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS on port 443 are unsupported while interception is enabled.
+- **Transparent traffic & QUIC:** With credentials omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently, including UDP port 443 for HTTP/3/QUIC, even if credentials are configured. Credential loading, injection and guest placeholders are inactive in `open` and `closed` modes. UDP port 443 remains blocked in `isolated`, including without credentials; `closed` blocks all networking. Opaque encrypted payloads cannot be inspected, and destination IP restrictions are not a content filter.
 - **Host CA & trust:** The host CA signing key stays in `~/.local/contain/network-ca/` under host permissions. Only the public certificate is installed into Alpine's trust store (and exported via `NODE_EXTRA_CA_CERTS`). Existing images need the required packages/modules or rebuilding.
 - **Limits & timeouts:** Sessions are capped at 128 flows, 128 host sockets, 64 concurrent HTTPS requests and 8 HTTP/2 streams per guest connection, with 64 KiB TCP buffers, 16 KiB streaming buffers and 32 KiB header limits. Timeouts are 10s dial/handshake, 20s transport liveness, 30s UDP idle and 2m TCP/HTTPS idle. Excess traffic is rejected or dropped rather than queued unboundedly.
 
 ### Host OpenCode credentials
 
-Set `machine.network.credentials: opencode` to use host API keys (OpenAI, OpenRouter, Anthropic, Groq, Mistral, DeepSeek) or host OAuth logins (OpenAI/ChatGPT, Anthropic) without exposing real secrets to the VM.
+Set `machine.network.credentials: opencode` with `mode: isolated` to use host API keys (OpenAI, OpenRouter, Anthropic, Groq, Mistral, DeepSeek) or host OAuth logins (OpenAI/ChatGPT, Anthropic) without exposing real secrets to the VM.
 
 - **Credential sources:** Reads host `OPENCODE_AUTH_CONTENT` first (matching OpenCode 1.19.6 auth CLI precedence), then `$XDG_DATA_HOME/opencode/auth.json` or `~/.local/share/opencode/auth.json`. Supports `type: oauth` (`access`, `refresh`, `expires` in Unix milliseconds, optional OpenAI `accountId`). Does not import SQLite integration credentials. Malformed entries, OAuth for other providers, `wellknown` entries and unrecognized providers fail startup.
 - **Placeholders & injection:** The guest receives non-secret placeholder entries (with distant OAuth expiry) and, for OAuth, `OPENCODE_CONFIG_CONTENT` with placeholder SDK keys and OpenAI's Codex base URL; normal on-disk config still applies. Real keys, tokens, account IDs and the CA private key never enter the guest or gateway logs. Auth is replaced only for exact approved TLS identities and API paths over independently verified upstream TLS; IP policy still applies, and redirects are never followed with injected auth.

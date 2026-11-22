@@ -7,13 +7,14 @@ func (gateway *Gateway) forwardEcho(packet []byte, parsed networkPacket) {
 
 	gateway.launch(func() {
 		// Re-check at the platform send boundary, independently of frame validation.
-		if !gateway.policy.permits(parsed.destination) || !networkDestination(parsed.destination) {
+		err := gateway.policy.checkDestination(parsed.destination)
+		if err != nil {
 			return
 		}
 
 		payload := copyPacket[parsed.header:]
 
-		err := sendNetworkEcho(gateway.ctx, parsed.destination, payload)
+		err = sendNetworkEcho(gateway.ctx, parsed.destination, payload)
 		if err != nil {
 			return
 		}

@@ -49,7 +49,13 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snap
 		return fmt.Errorf("load network CA: %w", err)
 	}
 
-	credentials, err := network.LoadCredentials(config.Machine.Network.Credentials, paths.DataDirectory)
+	adapter := ""
+
+	if config.Machine.Network.InspectHTTPS() {
+		adapter = config.Machine.Network.Credentials
+	}
+
+	credentials, err := network.LoadCredentials(adapter, paths.DataDirectory)
 	if err != nil {
 		return err
 	}
@@ -201,7 +207,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snap
 		<-watchNetwork
 	}()
 
-	if config.Machine.Network.Credentials == "opencode" {
+	if adapter == "opencode" {
 		err = con.runShell(consoleCtx, "export OPENCODE_AUTH_CONTENT="+shellQuote(credentials.Placeholder()))
 		if err != nil {
 			return err

@@ -10,18 +10,24 @@ import (
 )
 
 type Config struct {
-	Mode        string   `yaml:"mode"`
-	Default     string   `yaml:"default"`
-	Allow       []string `yaml:"allow"`
-	Deny        []string `yaml:"deny"`
-	Credentials string   `yaml:"credentials,omitempty"`
+	Mode          string   `yaml:"mode"`
+	Default       string   `yaml:"default"`
+	Allow         []string `yaml:"allow"`
+	Deny          []string `yaml:"deny"`
+	Credentials   string   `yaml:"credentials,omitempty"`
+	AllowLoopback bool     `yaml:"allow_loopback"`
+	AllowLAN      bool     `yaml:"allow_lan"`
 }
 
 type networkPolicy struct {
-	mode         string
-	defaultAllow bool
-	allow        []netip.Prefix
-	deny         []netip.Prefix
+	mode          string
+	defaultAllow  bool
+	allow         []netip.Prefix
+	deny          []netip.Prefix
+	allowLoopback bool
+	allowLAN      bool
+	inspectHTTPS  bool
+	local         networkLocalAccess
 }
 
 type networkConfigValue Config
@@ -48,6 +54,10 @@ func (config *Config) UnmarshalYAML(data []byte) error {
 func (policy *networkPolicy) permits(address netip.Addr) bool {
 	address = address.Unmap()
 	if policy.mode == "closed" || !address.IsValid() {
+		return false
+	}
+
+	if !policy.permitsLocal(address) {
 		return false
 	}
 
@@ -79,6 +89,10 @@ func (config Config) Validate() error {
 	return err
 }
 
+func (config Config) InspectHTTPS() bool {
+	return config.Mode == "isolated" && config.Credentials != ""
+}
+
 func DefaultConfig() Config {
 	return Config{Mode: "isolated", Default: "deny", Allow: []string{}, Deny: []string{}}
 }
@@ -106,7 +120,15 @@ func compileNetworkPolicy(config Config) (*networkPolicy, error) {
 		return nil, fmt.Errorf("machine.network.deny: %w", err)
 	}
 
-	return &networkPolicy{mode: config.Mode, defaultAllow: config.Default == "allow", allow: allow, deny: deny}, nil
+	return &networkPolicy{
+		mode:          config.Mode,
+		defaultAllow:  config.Default == "allow",
+		allow:         allow,
+		deny:          deny,
+		allowLoopback: config.AllowLoopback,
+		allowLAN:      config.AllowLAN,
+		inspectHTTPS:  config.InspectHTTPS(),
+	}, nil
 }
 
 func networkPrefixes(values []string) ([]netip.Prefix, error) {

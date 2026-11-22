@@ -70,8 +70,10 @@ type networkIdleConn struct {
 
 type networkSocketConn struct {
 	net.Conn
-	slots chan struct{}
-	once  sync.Once
+	slots          chan struct{}
+	once           sync.Once
+	datagramPolicy *networkPolicy
+	destination    netip.Addr
 }
 
 type networkCloseWriter interface {
@@ -94,6 +96,19 @@ func (connection *networkSocketConn) CloseWrite() error {
 	}
 
 	return connection.Close()
+}
+
+func (connection *networkSocketConn) Write(data []byte) (int, error) {
+	if connection.datagramPolicy != nil {
+		// UDP can be rerouted between datagrams. Refresh host interfaces here rather
+		// than caching them across sends, even though this costs interface-query allocations.
+		err := connection.datagramPolicy.checkDestination(connection.destination)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return connection.Conn.Write(data)
 }
 
 func (connection *networkIdleConn) SetDeadline(deadline time.Time) error {
@@ -230,12 +245,17 @@ func (gateway *Gateway) dial(ctx context.Context, protocol string, destination n
 		return nil, context.Canceled
 	}
 
-	if !networkDestination(destination.Addr()) || !gateway.policy.permits(destination.Addr()) || destination.Port() == 0 || protocol == "udp" && destination.Port() == 443 {
+	if destination.Port() == 0 || protocol == "udp" && destination.Port() == 443 && gateway.policy.mode != "open" {
 		return nil, errNetworkDenied
 	}
 
 	if protocol != "tcp" && protocol != "udp" {
 		return nil, errNetworkPacket
+	}
+
+	err := gateway.policy.checkDestination(destination.Addr())
+	if err != nil {
+		return nil, err
 	}
 
 	select {
@@ -255,6 +275,12 @@ func (gateway *Gateway) dial(ctx context.Context, protocol string, destination n
 	}
 
 	counted := &networkSocketConn{Conn: connection, slots: gateway.sockets}
+
+	if protocol == "udp" {
+		counted.datagramPolicy = gateway.policy
+		counted.destination = destination.Addr()
+	}
+
 	if !gateway.track(counted) {
 		return nil, context.Canceled
 	}
@@ -301,7 +327,7 @@ func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 
 		defer gateway.release(guest)
 
-		if destination.Port() == 443 {
+		if destination.Port() == 443 && gateway.policy.inspectHTTPS {
 			gateway.interceptHTTPS(guest, host, destination)
 
 			return
@@ -345,7 +371,7 @@ func (gateway *Gateway) retireTCP(endpoint tcpip.Endpoint) {
 
 func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 	destination := networkEndpointDestination(request.ID())
-	if !gateway.policy.permits(destination.Addr()) || destination.Port() == 443 {
+	if !gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open" {
 		return false
 	}
 
@@ -372,7 +398,7 @@ func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 		}
 
 		defer gateway.release(host)
-		relayNetwork(guest, host, 30*time.Second)
+		relayNetworkDatagrams(guest, host)
 	})
 
 	if !started {
@@ -549,6 +575,15 @@ func Start(ctx context.Context, dataDirectory string, config Config, ca *Authori
 		return nil, err
 	}
 
+	if policy.inspectHTTPS && (ca == nil || credentials == nil) {
+		return nil, errors.New("HTTPS credential interception requires an authority and credentials")
+	}
+
+	err = policy.refreshLocal()
+	if err != nil {
+		return nil, fmt.Errorf("inspect host networks: %w", err)
+	}
+
 	directory, err := os.MkdirTemp(dataDirectory, "net-")
 	if err != nil {
 		return nil, err
@@ -590,7 +625,7 @@ func Start(ctx context.Context, dataDirectory string, config Config, ca *Authori
 		connections: make(map[net.Conn]struct{}, networkConnections*2),
 		link:        channel.New(128, networkMTU, ""),
 		stack: stack.New(stack.Options{
-			NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocolWithOptions(ipv4.Options{AllowExternalLoopbackTraffic: true}), ipv6.NewProtocolWithOptions(ipv6.Options{AllowExternalLoopbackTraffic: true})},
+			NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocolWithOptions(ipv4.Options{AllowExternalLoopbackTraffic: config.AllowLoopback}), ipv6.NewProtocolWithOptions(ipv6.Options{AllowExternalLoopbackTraffic: config.AllowLoopback})},
 			TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 		}),
 	}
@@ -690,6 +725,42 @@ func finishNetworkWrite(destination, source net.Conn, err error) {
 
 	destination.Close()
 	source.Close()
+}
+
+func relayNetworkDatagrams(guest, host net.Conn) {
+	finished := make(chan struct{})
+
+	guestIdle := &networkIdleConn{Conn: guest, timeout: 30 * time.Second}
+	hostIdle := &networkIdleConn{Conn: host, timeout: 30 * time.Second}
+
+	go func() {
+		defer close(finished)
+		copyNetworkDatagrams(hostIdle, guestIdle)
+	}()
+
+	copyNetworkDatagrams(guestIdle, hostIdle)
+
+	<-finished
+}
+
+func copyNetworkDatagrams(destination, source net.Conn) {
+	defer destination.Close()
+	defer source.Close()
+
+	var data [networkBuffer]byte
+
+	for {
+		length, err := source.Read(data[:])
+		if err != nil {
+			return
+		}
+
+		// Unlike stream copying, an empty UDP datagram must still be forwarded.
+		_, err = destination.Write(data[:length])
+		if err != nil {
+			return
+		}
+	}
 }
 
 func networkDeadline(deadline time.Time, timeout time.Duration) time.Time {

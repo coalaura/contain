@@ -97,7 +97,7 @@ func inspectNetworkPacket(packet []byte, policy *networkPolicy) (networkPacket, 
 		}
 
 		parsed.port = binary.BigEndian.Uint16(payload[2:4])
-		if parsed.port == 443 {
+		if parsed.port == 443 && policy.mode != "open" {
 			return parsed, errNetworkPacket
 		}
 	case 1:
