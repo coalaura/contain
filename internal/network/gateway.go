@@ -39,6 +39,8 @@ type Gateway struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	policy      *networkPolicy
+	dns         DNSConfig
+	dnsQueries  chan struct{}
 	ca          *Authority
 	credentials *Credentials
 	base        string
@@ -290,6 +292,12 @@ func (gateway *Gateway) dial(ctx context.Context, protocol string, destination n
 
 func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 	destination := networkEndpointDestination(request.ID())
+	if gateway.policy.servesDNS(destination) {
+		gateway.forwardDNSTCP(request)
+
+		return
+	}
+
 	if !gateway.policy.permits(destination.Addr()) {
 		request.Complete(true)
 
@@ -371,7 +379,9 @@ func (gateway *Gateway) retireTCP(endpoint tcpip.Endpoint) {
 
 func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 	destination := networkEndpointDestination(request.ID())
-	if !gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open" {
+	isDNS := gateway.policy.servesDNS(destination)
+
+	if !isDNS && (!gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open") {
 		return false
 	}
 
@@ -391,6 +401,12 @@ func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 		}
 
 		defer gateway.release(guest)
+
+		if isDNS {
+			gateway.serveDNS(guest, false)
+
+			return
+		}
 
 		host, err := gateway.dial(gateway.ctx, "udp", destination)
 		if err != nil {
@@ -569,11 +585,18 @@ func (gateway *Gateway) WaitReady(ctx context.Context) error {
 	}
 }
 
-func Start(ctx context.Context, dataDirectory string, config Config, ca *Authority, credentials *Credentials) (*Gateway, error) {
+func Start(ctx context.Context, dataDirectory string, config Config, dns DNSConfig, ca *Authority, credentials *Credentials) (*Gateway, error) {
 	policy, err := compileNetworkPolicy(config)
 	if err != nil {
 		return nil, err
 	}
+
+	err = dns.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	policy.dns = newDNSCache()
 
 	if policy.inspectHTTPS && (ca == nil || credentials == nil) {
 		return nil, errors.New("HTTPS credential interception requires an authority and credentials")
@@ -612,6 +635,8 @@ func Start(ctx context.Context, dataDirectory string, config Config, ca *Authori
 		ctx:         ctx,
 		cancel:      cancel,
 		policy:      policy,
+		dns:         dns,
+		dnsQueries:  make(chan struct{}, 32),
 		ca:          ca,
 		credentials: credentials,
 		base:        base,

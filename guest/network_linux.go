@@ -283,5 +283,5 @@ func configureGuestNetwork() error {
 		}
 	}
 
-	return os.WriteFile("/etc/resolv.conf", []byte("nameserver 1.1.1.1\nnameserver 2606:4700:4700::1111\noptions timeout:2 attempts:2\n"), 0644)
+	return os.WriteFile("/etc/resolv.conf", []byte("nameserver 192.0.2.1\noptions timeout:5 attempts:2\n"), 0644)
 }

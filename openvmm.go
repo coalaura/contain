@@ -63,7 +63,7 @@ func runOpenVMM(ctx context.Context, output *os.File, mounts []mount.Mount, snap
 		return err
 	}
 
-	gateway, err := network.Start(ctx, paths.DataDirectory, config.Machine.Network, authority, credentials)
+	gateway, err := network.Start(ctx, paths.DataDirectory, config.Machine.Network, config.Machine.DNS, authority, credentials)
 	if err != nil {
 		return err
 	}

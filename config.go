@@ -26,12 +26,13 @@ type MachineConfig struct {
 	initrd string
 	kernel string
 
-	Source     string         `yaml:"source"`
-	Processors int            `yaml:"processors"`
-	Memory     int            `yaml:"memory"`
-	Command    string         `yaml:"command"`
-	Login      ConfigLogin    `yaml:"login"`
-	Network    network.Config `yaml:"network"`
+	Source     string            `yaml:"source"`
+	Processors int               `yaml:"processors"`
+	Memory     int               `yaml:"memory"`
+	Command    string            `yaml:"command"`
+	Login      ConfigLogin       `yaml:"login"`
+	Network    network.Config    `yaml:"network"`
+	DNS        network.DNSConfig `yaml:"dns"`
 }
 
 type Config struct {
@@ -46,6 +47,11 @@ func (c *Config) Init() error {
 	networkErr := c.Machine.Network.Validate()
 	if networkErr != nil {
 		return networkErr
+	}
+
+	dnsErr := c.Machine.DNS.Validate()
+	if dnsErr != nil {
+		return dnsErr
 	}
 
 	// validate processor count
@@ -101,13 +107,17 @@ func (c *Config) Store() error {
 			"$.machine.login.password": {yaml.HeadComment(" guest console login password")},
 
 			"$.machine.network":                {yaml.HeadComment("")},
-			"$.machine.network.mode":           {yaml.HeadComment(" open (no IP rules), isolated (IP rules) or closed (no external access)")},
-			"$.machine.network.default":        {yaml.HeadComment(" action for unmatched IPs in isolated mode: allow or deny")},
-			"$.machine.network.allow":          {yaml.HeadComment(" IP addresses/CIDRs allowed in isolated mode with default: deny")},
-			"$.machine.network.deny":           {yaml.HeadComment(" IP addresses/CIDRs blocked in isolated mode; overrides allow")},
+			"$.machine.network.mode":           {yaml.HeadComment(" open (no IP/domain rules), isolated (IP/domain rules) or closed (no networking)")},
+			"$.machine.network.default":        {yaml.HeadComment(" action for unmatched IPs and DNS names in isolated mode: allow or deny")},
+			"$.machine.network.allow":          {yaml.HeadComment(" IP addresses, CIDRs or exact domain names allowed in isolated mode")},
+			"$.machine.network.deny":           {yaml.HeadComment(" IP addresses, CIDRs or exact domain names blocked in isolated mode; overrides allow")},
 			"$.machine.network.credentials":    {yaml.HeadComment(" none (or empty), or opencode to inject host credentials in isolated mode")},
 			"$.machine.network.allow_loopback": {yaml.HeadComment(" allow host addresses, including loopback; still subject to network rules")},
 			"$.machine.network.allow_lan":      {yaml.HeadComment(" allow private and directly connected networks; still subject to network rules")},
+
+			"$.machine.dns":           {yaml.HeadComment("")},
+			"$.machine.dns.primary":   {yaml.HeadComment(" host resolver upstream: IP:port, domain:port or https://... DoH URL")},
+			"$.machine.dns.secondary": {yaml.HeadComment(" fallback DNS upstream; empty disables fallback")},
 		}
 	)
 
@@ -128,6 +138,7 @@ func DefaultConfig() *Config {
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
 			Network:    network.DefaultConfig(),
+			DNS:        network.DefaultDNSConfig(),
 			Login: ConfigLogin{
 				Username: "root",
 				Password: "alpine",

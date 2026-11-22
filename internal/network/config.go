@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -24,6 +25,9 @@ type networkPolicy struct {
 	defaultAllow  bool
 	allow         []netip.Prefix
 	deny          []netip.Prefix
+	allowDomains  map[string]struct{}
+	denyDomains   map[string]struct{}
+	dns           *dnsCache
 	allowLoopback bool
 	allowLAN      bool
 	inspectHTTPS  bool
@@ -81,7 +85,7 @@ func (policy *networkPolicy) permits(address netip.Addr) bool {
 		}
 	}
 
-	return false
+	return policy.dns != nil && policy.dns.permits(address)
 }
 
 func (config Config) Validate() error {
@@ -110,12 +114,12 @@ func compileNetworkPolicy(config Config) (*networkPolicy, error) {
 		return nil, errors.New("machine.network.credentials must be none, opencode or empty")
 	}
 
-	allow, err := networkPrefixes(config.Allow)
+	allow, allowDomains, err := networkRules(config.Allow)
 	if err != nil {
 		return nil, fmt.Errorf("machine.network.allow: %w", err)
 	}
 
-	deny, err := networkPrefixes(config.Deny)
+	deny, denyDomains, err := networkRules(config.Deny)
 	if err != nil {
 		return nil, fmt.Errorf("machine.network.deny: %w", err)
 	}
@@ -125,24 +129,27 @@ func compileNetworkPolicy(config Config) (*networkPolicy, error) {
 		defaultAllow:  config.Default == "allow",
 		allow:         allow,
 		deny:          deny,
+		allowDomains:  allowDomains,
+		denyDomains:   denyDomains,
 		allowLoopback: config.AllowLoopback,
 		allowLAN:      config.AllowLAN,
 		inspectHTTPS:  config.InspectHTTPS(),
 	}, nil
 }
 
-func networkPrefixes(values []string) ([]netip.Prefix, error) {
+func networkRules(values []string) ([]netip.Prefix, map[string]struct{}, error) {
 	if len(values) > 4096 {
-		return nil, errors.New("at most 4096 IP/CIDR rules are supported")
+		return nil, nil, errors.New("at most 4096 IP/CIDR/domain rules are supported")
 	}
 
 	prefixes := make([]netip.Prefix, 0, len(values))
+	domains := make(map[string]struct{}, len(values))
 
 	for _, value := range values {
 		address, err := netip.ParseAddr(value)
 		if err == nil {
 			if address.Zone() != "" {
-				return nil, fmt.Errorf("scoped IP address %q is unsupported", value)
+				return nil, nil, fmt.Errorf("scoped IP address %q is unsupported", value)
 			}
 
 			address = address.Unmap()
@@ -153,11 +160,44 @@ func networkPrefixes(values []string) ([]netip.Prefix, error) {
 
 		prefix, err := netip.ParsePrefix(value)
 		if err != nil || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
-			return nil, fmt.Errorf("%q must be an IP address or canonical IPv4/IPv6 CIDR (no host bits or mapped IPv6 CIDRs)", value)
+			domain, valid := networkDomain(value)
+			if !valid {
+				return nil, nil, fmt.Errorf("%q must be an IP address, canonical IPv4/IPv6 CIDR or exact ASCII domain name", value)
+			}
+
+			domains[domain] = struct{}{}
+
+			continue
 		}
 
 		prefixes = append(prefixes, prefix)
 	}
 
-	return prefixes, nil
+	return prefixes, domains, nil
+}
+
+func networkDomain(value string) (string, bool) {
+	value = strings.TrimSuffix(value, ".")
+	if len(value) == 0 || len(value) > 253 {
+		return "", false
+	}
+
+	hasLetter := false
+
+	for label := range strings.SplitSeq(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", false
+		}
+
+		for _, character := range label {
+			letter := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
+			if !letter && (character < '0' || character > '9') && character != '-' && character != '_' {
+				return "", false
+			}
+
+			hasLetter = hasLetter || letter
+		}
+	}
+
+	return strings.ToLower(value), hasLetter
 }

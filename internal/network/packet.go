@@ -72,10 +72,6 @@ func inspectNetworkPacket(packet []byte, policy *networkPolicy) (networkPacket, 
 		return parsed, errNetworkPacket
 	}
 
-	if !policy.permits(parsed.destination) {
-		return parsed, errNetworkDenied
-	}
-
 	payload := packet[parsed.header:]
 	pseudo := networkPseudoSum(parsed.source, parsed.destination, parsed.protocol, len(payload))
 
@@ -115,6 +111,11 @@ func inspectNetworkPacket(packet []byte, policy *networkPolicy) (networkPacket, 
 
 	if (parsed.protocol == 6 || parsed.protocol == 17) && (parsed.port == 0 || binary.BigEndian.Uint16(payload[:2]) == 0) {
 		return parsed, errNetworkPacket
+	}
+
+	destination := netip.AddrPortFrom(parsed.destination, parsed.port)
+	if !policy.servesDNS(destination) && !policy.permits(parsed.destination) {
+		return parsed, errNetworkDenied
 	}
 
 	return parsed, nil

@@ -31,11 +31,6 @@ type oauthRefreshResponse struct {
 	TokenType    string `json:"token_type"`
 }
 
-var oauthResolvers = []netip.AddrPort{
-	netip.MustParseAddrPort("1.1.1.1:53"),
-	netip.MustParseAddrPort("[2606:4700:4700::1111]:53"),
-}
-
 func (gateway *Gateway) refreshOAuth(ctx context.Context, name string, auth networkAuth) (networkAuth, error) {
 	host := "auth.openai.com"
 	endpoint := "https://auth.openai.com/oauth/token"
@@ -120,29 +115,7 @@ func (gateway *Gateway) refreshOAuth(ctx context.Context, name string, auth netw
 }
 
 func (gateway *Gateway) dialOAuth(ctx context.Context, host string) (net.Conn, error) {
-	// Refresh DNS follows the same policy and socket budget as guest DNS. Never use
-	// an unrestricted host resolver or HTTP proxy to get around an isolated policy.
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var lastErr = errNetworkDenied
-
-			for _, resolver := range oauthResolvers {
-				connection, err := gateway.dial(ctx, "tcp", resolver)
-				if err != nil {
-					lastErr = err
-
-					continue
-				}
-
-				return &networkHTTPSConn{Conn: connection, timeout: networkDialTimeout, gateway: gateway}, nil
-			}
-
-			return nil, lastErr
-		},
-	}
-
-	addresses, err := resolver.LookupNetIP(ctx, "ip", host+".")
+	addresses, err := gateway.lookupDNSAddresses(ctx, host)
 	if err != nil {
 		return nil, err
 	}
