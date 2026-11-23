@@ -27,6 +27,13 @@ func create(ctx context.Context, command *cli.Command) error {
 		return errors.New("create currently requires an amd64 host")
 	}
 
+	name := command.String("image")
+
+	err := validateImageName(name)
+	if err != nil {
+		return err
+	}
+
 	size, err := imagecreate.ParseDiskSize(command.String("size"))
 	if err != nil {
 		return fmt.Errorf("--size: %w", err)
@@ -40,7 +47,7 @@ func create(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	directory := filepath.Join(paths.ImagesDirectory, "alpine")
+	directory := filepath.Join(paths.ImagesDirectory, name)
 
 	err = requireNewImage(directory)
 	if err != nil {
@@ -52,7 +59,7 @@ func create(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	staging, err := os.MkdirTemp(filepath.Dir(directory), ".alpine-*")
+	staging, err := os.MkdirTemp(filepath.Dir(directory), ".image-*")
 	if err != nil {
 		return err
 	}
@@ -99,11 +106,11 @@ func create(ctx context.Context, command *cli.Command) error {
 
 	took := time.Since(start).Round(time.Millisecond)
 
-	log.Successf("Alpine image created in %s.\n", took)
+	log.Successf("Image %q created in %s.\n", name, took)
 
 	log.Subf("Image: %s\n", directory)
 	log.Subln("Login: root / alpine")
-	log.Subln("Use this directory as machine.source in your contain configuration.")
+	log.Subf("Run with: contain --image %s\n", name)
 
 	return nil
 }

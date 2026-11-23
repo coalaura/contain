@@ -28,7 +28,6 @@ type MachineConfig struct {
 	initrd    string
 	kernel    string
 
-	Source     string            `yaml:"source"`
 	Processors int               `yaml:"processors"`
 	Memory     int               `yaml:"memory"`
 	Command    string            `yaml:"command"`
@@ -46,7 +45,12 @@ type Config struct {
 
 var MaxProcs = runtime.GOMAXPROCS(0)
 
-func (c *Config) Init() error {
+func (c *Config) Init(image string) error {
+	err := validateImageName(image)
+	if err != nil {
+		return err
+	}
+
 	logErr := c.Logs.Validate()
 	if logErr != nil {
 		return logErr
@@ -77,18 +81,14 @@ func (c *Config) Init() error {
 	}
 
 	// validate guest image files
-	directory, err := pathutil.Host(c.Machine.Source)
-	if err != nil {
-		return fmt.Errorf("machine.source: %w", err)
-	}
-
+	directory := filepath.Join(paths.ImagesDirectory, image)
 	disk := filepath.Join(directory, "disk.raw")
 	initrd := filepath.Join(directory, "initramfs-virt")
 	kernel := filepath.Join(directory, "vmlinuz-virt")
 
 	err = pathutil.FilesExist(disk, initrd, kernel)
 	if err != nil {
-		return err
+		return fmt.Errorf("image %q: %w", image, err)
 	}
 
 	c.Machine.directory = directory
@@ -106,7 +106,6 @@ func (c *Config) Store() error {
 			"$.logs":              {yaml.HeadComment("", " session logs keep the current file and one previous file")},
 			"$.logs.max_size_mib": {yaml.HeadComment(" maximum size per log file in MiB (1-1024)")},
 
-			"$.machine.source":     {yaml.HeadComment(" path to the guest image directory (supports ~)")},
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
 			"$.machine.memory":     {yaml.HeadComment(" amount of memory to assign to the vm (in GiB)")},
 			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
@@ -146,7 +145,6 @@ func (c *Config) Store() error {
 func DefaultConfig() *Config {
 	return &Config{
 		Machine: MachineConfig{
-			Source:     filepath.Join(paths.ImagesDirectory, "alpine"),
 			Processors: max(1, min(4, MaxProcs-2)),
 			Memory:     4,
 			Network:    network.DefaultConfig(),
@@ -164,7 +162,7 @@ func DefaultConfig() *Config {
 	}
 }
 
-func LoadConfig() (*Config, error) {
+func LoadConfig(image string) (*Config, error) {
 	cfg := DefaultConfig()
 
 	file, err := os.OpenFile(paths.ConfigFile, os.O_RDONLY, 0)
@@ -198,7 +196,7 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
-	err = cfg.Init()
+	err = cfg.Init(image)
 	if err != nil {
 		return nil, err
 	}

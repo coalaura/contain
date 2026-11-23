@@ -31,7 +31,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:            "contain",
 		Usage:           "Run tools and agents in an isolated Linux workspace",
-		UsageText:       "contain [run] [options]\ncontain create [--size 8G] [--tools]",
+		UsageText:       "contain [run] [options]\ncontain create [--image NAME] [--size 8G] [--tools]\ncontain list\ncontain remove NAME",
 		Version:         version,
 		HideHelpCommand: true,
 		DefaultCommand:  "run",
@@ -42,6 +42,7 @@ func main() {
 				UsageText:                 "contain [run] [options]",
 				DisableSliceFlagSeparator: true,
 				Flags: []cli.Flag{
+					imageFlag(),
 					&cli.BoolFlag{
 						Name:    "plain",
 						Aliases: []string{"p"},
@@ -78,8 +79,9 @@ func main() {
 			{
 				Name:      "create",
 				Usage:     "Create an Alpine Linux guest image",
-				UsageText: "contain create [--size 8G] [--tools]",
+				UsageText: "contain create [--image NAME] [--size 8G] [--tools]",
 				Flags: []cli.Flag{
+					imageFlag(),
 					&cli.StringFlag{
 						Name:    "size",
 						Aliases: []string{"s"},
@@ -93,6 +95,18 @@ func main() {
 					},
 				},
 				Action: create,
+			},
+			{
+				Name:      "list",
+				Usage:     "List images and their size",
+				UsageText: "contain list",
+				Action:    listImages,
+			},
+			{
+				Name:      "remove",
+				Usage:     "Permanently delete an image after confirming its name",
+				UsageText: "contain remove NAME",
+				Action:    removeImage,
 			},
 		},
 	}
@@ -117,7 +131,12 @@ func run(ctx context.Context, command *cli.Command) error {
 		return errors.New("--shell and --run cannot be used together")
 	}
 
-	var err error
+	image := command.String("image")
+
+	err := validateImageName(image)
+	if err != nil {
+		return err
+	}
 
 	log.Stepln("Resolving paths...")
 
@@ -128,7 +147,7 @@ func run(ctx context.Context, command *cli.Command) error {
 
 	log.Stepln("Loading configuration...")
 
-	config, err = LoadConfig()
+	config, err = LoadConfig(image)
 	if err != nil {
 		return err
 	}

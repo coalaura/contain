@@ -30,7 +30,6 @@ On first run, `contain` writes a default configuration file to `~/.config/contai
 
 ```yaml
 machine:
-  source: ~/.local/contain/images/alpine
   processors: 4
   memory: 4 # GiB (1-32)
   login:
@@ -72,7 +71,7 @@ When `machine.command` is set, it runs in Bash inside `/workspace` and shuts dow
 
 The current working directory is always mounted read/write at `/workspace`. Additional mounts require an explicit `guest` directory one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin` (for example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`). Replace older `name` + `target` entries with the full `guest` path. Setting `writable` on a `readonly: true` mount exports existing relative subdirectories read/write without making the whole mount writable.
 
-Host paths expand `~` to the host user's home (including `~\.config\opencode` on Windows), including in `--mount` and `machine.source`. Guest `~` expands to `/root`, the home in the supported Alpine root session; absolute equivalents work too and dry-run prints the resolved absolute guest paths.
+Host paths expand `~` to the host user's home (including `~\.config\opencode` on Windows), including in `--mount`. Guest `~` expands to `/root`, the home in the supported Alpine root session; absolute equivalents work too and dry-run prints the resolved absolute guest paths.
 
 `snapshots` copies individual host files (including empty files) into the guest once per session before the shell or command starts. `guest` accepts any absolute file path or `~/...`; missing parent directories are created and existing files are replaced with private (`0600`) copies. Guest edits are never synced back to the host. Copies remain on persistent guest disks until replaced at the next startup or are discarded by `--temporary`.
 
@@ -138,7 +137,7 @@ Only `isolated` mode with `credentials: opencode` intercepts TCP port 443, suppo
 
 With `credentials` set to `none` (default), omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently (including UDP port 443 for HTTP/3/QUIC) and disables credential loading, injection and guest placeholders (as does `closed`). UDP port 443 remains blocked in `isolated`, including without credentials. Opaque encrypted payloads cannot be inspected and destination IP restrictions are not a content filter.
 
-Each image has its own CA at `<machine.source>/network/ca/authority.pem`, alongside its disk and boot files (by default under `~/.local/contain/images/alpine/`). The signing key stays under host permissions; only the public certificate is installed into Alpine's trust store and exported via `NODE_EXTRA_CA_CERTS`. The CA is created when needed and the guest trust store updates automatically at startup.
+Each image has its own CA at `~/.local/contain/images/<name>/network/ca/authority.pem`, alongside its disk and boot files. The signing key stays under host permissions; only the public certificate is installed into Alpine's trust store and exported via `NODE_EXTRA_CA_CERTS`. The CA is created when needed and the guest trust store updates automatically at startup.
 
 #### Limits & timeouts
 
@@ -182,19 +181,22 @@ Rotated tokens are journaled in owner-only `~/.local/contain/network/auth` befor
 
 A persistent `lock` file provides a stable OS-level lock while `tokens.json` is atomically replaced (its presence does not mean a session is running and the OS releases it when its handle closes). Because host OpenCode does not take this lock, avoid concurrent refreshes between host OpenCode and `contain`, restart `contain` after changing accounts and keep the rotation store private and persistent.
 
-Do not mount or snapshot host credentials into the guest: known OpenCode credential, rotation-store and CA paths (including containing directories) are rejected. The managed `images/` tree and the configured image directory are also host-only, including when `machine.source` points outside the managed tree. This is not a general secret scanner: remove credentials from old guest disks and audit other shared files. Same-user host processes and approved providers remain trusted.
+Do not mount or snapshot host credentials into the guest: known OpenCode credential, rotation-store and CA paths (including containing directories) are rejected. The managed `images/` tree is also host-only. This is not a general secret scanner: remove credentials from old guest disks and audit other shared files. Same-user host processes and approved providers remain trusted.
 
 ## Usage
 
 ```sh
 contain [run] [options]
-contain create [--size 8G] [--tools]
+contain create [--image NAME] [--size 8G] [--tools]
+contain list
+contain remove NAME
 ```
 
 `run` is the default subcommand: `contain --shell` is equivalent to `contain run --shell`. The session flags below belong to `run`; `create` has its own flags. Use `contain run --help` or `contain create --help` for command-specific help and `contain --version` for version information.
 
 | Flag | Description |
 | --- | --- |
+| `--image NAME`, `-i NAME` | Select an image from `~/.local/contain/images/` (default: `alpine`). Also available on `create`. |
 | `--shell` | Start an interactive shell instead of the configured command. |
 | `--plain` | Start an interactive shell at `/`, skipping all workspace, configured and CLI mounts, snapshots and startup commands. Takes precedence over `--shell`, `--run` and `--mount`; can be combined with `--temporary` and `--dry-run`. |
 | `--run COMMAND` | Run a single-line shell command instead of the configured command. Cannot be combined with `--shell`. |
@@ -245,6 +247,10 @@ Create a bootable x86_64 Alpine Linux image with OpenVMM on Windows or Linux:
 contain create             # 8 GiB disk
 contain create --size 16G  # custom disk size
 contain create --tools     # include development tools and dependencies
+contain create --image dev --tools
+contain --image dev        # run the named image
+contain list               # list images and their size
+contain remove dev         # type dev again to confirm permanent deletion
 ```
 
 This downloads the latest stable Alpine netboot kernel, initramfs and matching module archive, formats a raw ext4 disk in Go (minimum 512 MiB, binary units) and installs `alpine-base`, `linux-virt`, Bash (default login shell, including without `--tools`), `ca-certificates` and `iproute2` inside a RAM-booted VM. Installed boot files are exported over virtio-fs; no host-side Linux formatting or mounting tools are needed.
@@ -253,7 +259,9 @@ Internet access is required on the host and in the guest: provisioning deliberat
 
 With `--tools`, an extra step installs common packages (Python, C/C++ build tools, Git and shell utilities) and the latest [Tap](https://github.com/coalaura/tap), then uses `tap get` for Go, PACE, Zig, Bun's musl build, builder, vet and ffwebp's full build, adding their binary directories to the guest's login `PATH`.
 
-The completed `disk.raw`, `vmlinuz-virt`, `initramfs-virt` and private `network/ca/` directory are stored in `~/.local/contain/images/alpine/` (the default `machine.source`, login `root` / `alpine`). Existing image directories are refused; if you already have a configuration, point `machine.source` at this directory. Temporary guest-helper and snapshot exports are created inside the configured image directory and removed after each session and installer output is captured in `~/.local/contain/logs/contain-create-<session>.log` using a 12-character lowercase hex session ID.
+The completed `disk.raw`, `vmlinuz-virt`, `initramfs-virt` and private `network/ca/` directory are stored in `~/.local/contain/images/<name>/` (default name `alpine`, login `root` / `alpine`). Both `create` and `run` accept `--image NAME`, defaulting to `alpine`; image selection is session-only and replaces the old `machine.source` setting, which is ignored. Names must start with a letter or digit and contain only ASCII letters, digits, hyphens or underscores. Existing image directories are refused. Temporary guest-helper and snapshot exports are created inside the selected image directory and removed after each session and installer output is captured in `~/.local/contain/logs/contain-create-<session>.log` using a 12-character lowercase hex session ID.
+
+`contain list` shows images alphabetically with the total logical size of their regular files in binary units (including the full provisioned disk size, rather than host space allocated to sparse files). `contain remove NAME` permanently deletes the entire image directory, including its disk, boot files and private CA, only after you type the exact full name at the confirmation prompt. Listing and removal do not require OpenVMM or a configuration file.
 
 The `alpine/` directory also includes helper scripts for building an image on a Linux host:
 
@@ -263,7 +271,7 @@ cd alpine
 ./build-alpine.sh
 ```
 
-This produces `disk.raw`, `vmlinuz-virt` and `initramfs-virt` in `alpine/build/` with default login `root` / `alpine`. Point `machine.source` in `~/.config/contain.yml` at that directory.
+This produces `disk.raw`, `vmlinuz-virt` and `initramfs-virt` in `alpine/build/` with default login `root` / `alpine`. Move that directory to `~/.local/contain/images/<name>/` and select it with `contain --image NAME`. Move any images previously selected through `machine.source` into this directory layout as well.
 
 An optional `./prepare-vm.sh` script is also included to preinstall common development toolchains into a freshly built `disk.raw`.
 
