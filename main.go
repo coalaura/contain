@@ -28,6 +28,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	mountFlag := &cli.StringSliceFlag{
+		Name:    "mount",
+		Aliases: []string{"m"},
+		Usage:   "Add a session mount: HOST[:NAME][:ro|rw] (repeatable; name defaults to the directory basename)",
+	}
+
+	mountFlag.SetStringer(func(cli.Flag) string {
+		return cli.FlagNamePrefixer(mountFlag.Names(), "SPEC") + "\t" + mountFlag.Usage
+	})
+
 	cmd := &cli.Command{
 		Name:            "contain",
 		Usage:           "Run tools and agents in an isolated Linux workspace",
@@ -58,11 +68,7 @@ func main() {
 						Aliases: []string{"r"},
 						Usage:   "Run `command` instead of the configured command",
 					},
-					&cli.StringSliceFlag{
-						Name:    "mount",
-						Aliases: []string{"m"},
-						Usage:   "Add a session mount `HOST[:NAME][:ro|rw]` (repeatable; name defaults to the directory basename)",
-					},
+					mountFlag,
 					&cli.BoolFlag{
 						Name:    "temporary",
 						Aliases: []string{"t", "temp"},
