@@ -1,6 +1,7 @@
 package network
 
 import (
+	"container/list"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,20 +14,24 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 type Authority struct {
-	certificate *x509.Certificate
-	key         *ecdsa.PrivateKey
-	public      []byte
+	certificate  *x509.Certificate
+	key          *ecdsa.PrivateKey
+	public       []byte
+	mutex        sync.Mutex
+	certificates map[string]*list.Element
+	order        list.List
 }
 
 func (authority *Authority) PublicCertificate() []byte {
 	return authority.public
 }
 
-func (authority *Authority) issue(identity string) (*tls.Certificate, error) {
+func (authority *Authority) sign(identity string, expires time.Time) (*tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
@@ -41,7 +46,7 @@ func (authority *Authority) issue(identity string) (*tls.Certificate, error) {
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: identity},
 		NotBefore:    time.Now().Add(-5 * time.Minute),
-		NotAfter:     time.Now().Add(24 * time.Hour),
+		NotAfter:     expires,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}

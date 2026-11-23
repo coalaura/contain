@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -36,30 +37,33 @@ const (
 )
 
 type Gateway struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	policy      *networkPolicy
-	dns         DNSConfig
-	dnsQueries  chan struct{}
-	ca          *Authority
-	credentials *Credentials
-	logger      *networkLogger
-	base        string
-	directory   string
-	listener    net.Listener
-	stack       *stack.Stack
-	link        *channel.Endpoint
-	ready       chan struct{}
-	done        chan struct{}
-	flows       chan struct{}
-	sockets     chan struct{}
-	requests    chan struct{}
-	workers     sync.WaitGroup
-	mutex       sync.Mutex
-	writeMutex  sync.Mutex
-	closed      bool
-	connections map[net.Conn]struct{}
-	transport   net.Conn
+	ctx          context.Context
+	cancel       context.CancelFunc
+	policy       *networkPolicy
+	dns          DNSConfig
+	dnsQueries   chan struct{}
+	dnsBuffers   chan []byte
+	dnsTransport *http.Transport
+	ca           *Authority
+	credentials  *Credentials
+	logger       *networkLogger
+	base         string
+	directory    string
+	listener     net.Listener
+	stack        *stack.Stack
+	link         *channel.Endpoint
+	ready        chan struct{}
+	done         chan struct{}
+	flows        chan struct{}
+	sockets      chan struct{}
+	requests     chan struct{}
+	workers      sync.WaitGroup
+	mutex        sync.Mutex
+	writeMutex   sync.Mutex
+	writeBuffer  [networkMTU + 2]byte
+	closed       bool
+	connections  map[net.Conn]struct{}
+	transport    net.Conn
 }
 
 // Deadline refreshes bound idle connections without imposing a total streaming lifetime.
@@ -186,6 +190,8 @@ func (gateway *Gateway) Close() error {
 	}
 
 	gateway.mutex.Unlock()
+
+	gateway.dnsTransport.CloseIdleConnections()
 
 	gateway.stack.Close()
 	gateway.stack.Wait()
@@ -372,6 +378,11 @@ func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 }
 
 func (gateway *Gateway) retireTCP(endpoint tcpip.Endpoint) {
+	state := tcp.EndpointState(endpoint.State())
+	if state == tcp.StateClose || state == tcp.StateError {
+		return
+	}
+
 	// Keep closing and TIME_WAIT endpoints inside the flow budget, including queued data.
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -380,13 +391,13 @@ func (gateway *Gateway) retireTCP(endpoint tcpip.Endpoint) {
 	defer timer.Stop()
 
 	for {
-		state := tcp.EndpointState(endpoint.State())
-		if state == tcp.StateClose || state == tcp.StateError {
-			return
-		}
-
 		select {
 		case <-ticker.C:
+			state = tcp.EndpointState(endpoint.State())
+			if state == tcp.StateClose || state == tcp.StateError {
+				return
+			}
+
 		case <-timer.C:
 			endpoint.Abort()
 
@@ -540,8 +551,8 @@ func (gateway *Gateway) serve() {
 			protocol = ipv6.ProtocolNumber
 		}
 
-		// Netstack retains packet buffers beyond InjectInbound; copy the reused frame.
-		packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), frame[:length]...))})
+		// MakeWithData copies the reused frame into netstack-owned storage.
+		packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(frame[:length])})
 		gateway.link.InjectInbound(protocol, packet)
 		packet.DecRef()
 	}
@@ -567,10 +578,8 @@ func (gateway *Gateway) writePackets() {
 			return
 		}
 
-		view := packet.ToView()
+		err := gateway.writePacket(packet)
 		packet.DecRef()
-		err := gateway.writeFrame(view.AsSlice())
-		view.Release()
 
 		if err != nil {
 			gateway.transport.Close()
@@ -578,6 +587,34 @@ func (gateway *Gateway) writePackets() {
 			return
 		}
 	}
+}
+
+func (gateway *Gateway) writePacket(packet *stack.PacketBuffer) error {
+	length := packet.Size()
+	if length > networkMTU {
+		return errNetworkPacket
+	}
+
+	gateway.writeMutex.Lock()
+	defer gateway.writeMutex.Unlock()
+
+	// Copy views directly while the packet is alive, skipping unused header space.
+	views, offset := packet.AsViewList()
+	written := 2
+
+	for view := views.Front(); view != nil; view = view.Next() {
+		data := view.AsSlice()
+		if offset >= len(data) {
+			offset -= len(data)
+
+			continue
+		}
+
+		written += copy(gateway.writeBuffer[written:], data[offset:])
+		offset = 0
+	}
+
+	return gateway.flushFrame(length)
 }
 
 func (gateway *Gateway) writeFrame(packet []byte) error {
@@ -588,14 +625,22 @@ func (gateway *Gateway) writeFrame(packet []byte) error {
 	gateway.writeMutex.Lock()
 	defer gateway.writeMutex.Unlock()
 
-	var frame [networkMTU + 2]byte
+	copy(gateway.writeBuffer[2:], packet)
 
-	binary.BigEndian.PutUint16(frame[:2], uint16(len(packet)))
-	copy(frame[2:], packet)
+	return gateway.flushFrame(len(packet))
+}
+
+// flushFrame requires writeMutex so packets and heartbeats share one framing buffer.
+func (gateway *Gateway) flushFrame(length int) error {
+	binary.BigEndian.PutUint16(gateway.writeBuffer[:2], uint16(length))
 
 	gateway.transport.SetWriteDeadline(time.Now().Add(networkDialTimeout))
 
-	_, err := gateway.transport.Write(frame[:len(packet)+2])
+	written, err := gateway.transport.Write(gateway.writeBuffer[:length+2])
+	if err == nil && written != length+2 {
+		return io.ErrShortWrite
+	}
+
 	return err
 }
 
@@ -668,6 +713,7 @@ func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, cre
 		policy:      policy,
 		dns:         dns,
 		dnsQueries:  make(chan struct{}, 32),
+		dnsBuffers:  make(chan []byte, 32),
 		ca:          ca,
 		credentials: credentials,
 		logger:      newNetworkLogger(output),
@@ -686,6 +732,8 @@ func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, cre
 			TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 		}),
 	}
+
+	gateway.dnsTransport = gateway.newDNSTransport()
 
 	stackErr := configureNetworkStack(gateway)
 	if stackErr != nil {

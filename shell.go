@@ -111,21 +111,30 @@ func (c *console) runShell(ctx context.Context, script string) error {
 
 func (c *console) waitForStatus(ctx context.Context, timeout time.Duration, marker string) (int, []byte, error) {
 	status := -1
+	line := make([]byte, 0, 8192)
 
-	_, tail, err := c.readUntil(ctx, timeout, func(tail []byte) (bool, consoleSignal) {
-		idx := bytes.LastIndex(tail, []byte(marker))
+	_, tail, err := c.readUntil(ctx, timeout, func(character byte) (bool, consoleSignal) {
+		if character != '\n' {
+			if len(line) == cap(line) {
+				copy(line, line[4096:])
+
+				line = line[:4096]
+			}
+
+			line = append(line, character)
+
+			return false, signalNone
+		}
+
+		complete := line
+		line = line[:0]
+
+		idx := bytes.LastIndex(complete, []byte(marker))
 		if idx < 0 {
 			return false, signalNone
 		}
 
-		after := tail[idx+len(marker):]
-
-		line, _, found := bytes.Cut(after, []byte{'\n'})
-		if !found {
-			return false, signalNone
-		}
-
-		n, parseErr := strconv.Atoi(strings.TrimSpace(string(line)))
+		n, parseErr := strconv.Atoi(strings.TrimSpace(string(complete[idx+len(marker):])))
 		if parseErr != nil {
 			return false, signalNone
 		}

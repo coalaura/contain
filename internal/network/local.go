@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -11,11 +12,12 @@ import (
 type networkLocalAccess struct {
 	mutex    sync.Mutex
 	snapshot atomic.Pointer[networkLocalSnapshot]
+	prefixes []netip.Prefix
 }
 
 type networkLocalSnapshot struct {
 	addresses map[netip.Addr]struct{}
-	subnets   []netip.Prefix
+	prefixes  []netip.Prefix
 }
 
 var networkSharedLAN = netip.MustParsePrefix("100.64.0.0/10")
@@ -46,8 +48,8 @@ func (policy *networkPolicy) permitsLocal(address netip.Addr) bool {
 		return false
 	}
 
-	for _, subnet := range local.subnets {
-		if subnet.Contains(address) {
+	for _, prefix := range local.prefixes {
+		if prefix.Contains(address) {
 			return false
 		}
 	}
@@ -83,30 +85,76 @@ func (policy *networkPolicy) refreshLocal() error {
 		return err
 	}
 
+	return policy.local.update(addresses)
+}
+
+// update requires mutex. Scratch prefixes are reused, but published snapshots
+// remain immutable for packet-policy readers.
+func (local *networkLocalAccess) update(addresses []net.Addr) error {
 	if len(addresses) > 4096 {
-		policy.local.snapshot.Store(nil)
+		local.snapshot.Store(nil)
 
 		return errors.New("too many host interface addresses")
 	}
 
-	snapshot := &networkLocalSnapshot{
-		addresses: make(map[netip.Addr]struct{}, len(addresses)),
-		subnets:   make([]netip.Prefix, 0, len(addresses)),
+	if cap(local.prefixes) < len(addresses) {
+		local.prefixes = make([]netip.Prefix, 0, len(addresses))
 	}
+
+	local.prefixes = local.prefixes[:0]
 
 	for _, address := range addresses {
-		prefix, parseErr := netip.ParsePrefix(address.String())
+		prefix, parseErr := networkInterfacePrefix(address)
 		if parseErr != nil {
-			policy.local.snapshot.Store(nil)
+			local.snapshot.Store(nil)
 
-			return errors.New("invalid host interface address")
+			return parseErr
 		}
 
-		snapshot.addresses[prefix.Addr().Unmap()] = struct{}{}
-		snapshot.subnets = append(snapshot.subnets, prefix.Masked())
+		local.prefixes = append(local.prefixes, prefix)
 	}
 
-	policy.local.snapshot.Store(snapshot)
+	previous := local.snapshot.Load()
+	if previous != nil && slices.Equal(previous.prefixes, local.prefixes) {
+		return nil
+	}
+
+	snapshot := &networkLocalSnapshot{
+		addresses: make(map[netip.Addr]struct{}, len(addresses)),
+		prefixes:  slices.Clone(local.prefixes),
+	}
+
+	for _, prefix := range snapshot.prefixes {
+		snapshot.addresses[prefix.Addr()] = struct{}{}
+	}
+
+	local.snapshot.Store(snapshot)
 
 	return nil
+}
+
+func networkInterfacePrefix(address net.Addr) (netip.Prefix, error) {
+	network, ok := address.(*net.IPNet)
+	if !ok || network == nil {
+		return netip.Prefix{}, errors.New("invalid host interface address")
+	}
+
+	ip, ok := netip.AddrFromSlice(network.IP)
+	if !ok {
+		return netip.Prefix{}, errors.New("invalid host interface address")
+	}
+
+	ip = ip.Unmap()
+	mask := network.Mask
+
+	if ip.Is4() && len(mask) == net.IPv6len {
+		mask = mask[12:]
+	}
+
+	ones, bits := mask.Size()
+	if bits != ip.BitLen() {
+		return netip.Prefix{}, errors.New("invalid host interface mask")
+	}
+
+	return netip.PrefixFrom(ip, ones), nil
 }

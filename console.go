@@ -34,13 +34,7 @@ type consoleConn interface {
 
 type consoleSignal uint8
 
-var (
-	loginPrompt    = regexp.MustCompile(`(?i)(?:^|[\r\n])[^\r\n]{0,160}login:[ \t]*$`)
-	passwordPrompt = regexp.MustCompile(`(?i)(?:^|[\r\n])[^\r\n]{0,160}password:[ \t]*$`)
-	shellPrompt    = regexp.MustCompile(`(?:^|[\r\n])[^\r\n]{0,160}[#$][ \t]*$`)
-	loginRejected  = regexp.MustCompile(`(?i)login incorrect|authentication failure|login failed`)
-	ansiCSI        = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
-)
+var ansiCSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 func (c *console) Close() error {
 	return c.conn.Close()
@@ -54,9 +48,15 @@ func (c *console) Writer() io.Writer {
 	return c.conn
 }
 
-func (c *console) waitSignal(ctx context.Context, timeout time.Duration, detect func([]byte) consoleSignal) (consoleSignal, error) {
-	event, _, err := c.readUntil(ctx, timeout, func(tail []byte) (bool, consoleSignal) {
-		value := detect(tail)
+func (c *console) waitSignal(ctx context.Context, timeout time.Duration, detect func(*consolePrompt) consoleSignal) (consoleSignal, error) {
+	var prompt consolePrompt
+
+	event, _, err := c.readUntil(ctx, timeout, func(character byte) (bool, consoleSignal) {
+		if !prompt.push(character) {
+			return false, signalNone
+		}
+
+		value := detect(&prompt)
 
 		return value != signalNone, value
 	})
@@ -64,7 +64,7 @@ func (c *console) waitSignal(ctx context.Context, timeout time.Duration, detect 
 	return event, err
 }
 
-func (c *console) readUntil(ctx context.Context, timeout time.Duration, match func([]byte) (bool, consoleSignal)) (consoleSignal, []byte, error) {
+func (c *console) readUntil(ctx context.Context, timeout time.Duration, match func(byte) (bool, consoleSignal)) (consoleSignal, []byte, error) {
 	deadline := time.Now().Add(timeout)
 
 	d, ok := ctx.Deadline()
@@ -93,7 +93,7 @@ func (c *console) readUntil(ctx context.Context, timeout time.Duration, match fu
 		c.conn.SetReadDeadline(time.Time{})
 	}()
 
-	tail := make([]byte, 0, 4096)
+	tail := make([]byte, 0, 8192)
 
 	for {
 		b, err := c.reader.ReadByte()
@@ -101,14 +101,15 @@ func (c *console) readUntil(ctx context.Context, timeout time.Duration, match fu
 			return signalNone, tail, err
 		}
 
-		tail = append(tail, b)
-		if len(tail) > 8192 {
+		if len(tail) == cap(tail) {
 			copy(tail, tail[4096:])
 
 			tail = tail[:4096]
 		}
 
-		ok, event := match(tail)
+		tail = append(tail, b)
+
+		ok, event := match(b)
 		if ok {
 			return event, tail, nil
 		}
@@ -204,8 +205,8 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return err
 	}
 
-	_, err = con.waitSignal(ctx, 90*time.Second, func(tail []byte) consoleSignal {
-		if loginPrompt.Match(ansiCSI.ReplaceAll(tail, nil)) {
+	_, err = con.waitSignal(ctx, 90*time.Second, func(prompt *consolePrompt) consoleSignal {
+		if prompt.login() {
 			return signalLogin
 		}
 
@@ -221,15 +222,13 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return fmt.Errorf("send guest username: %w", err)
 	}
 
-	state, err := con.waitSignal(ctx, 20*time.Second, func(tail []byte) consoleSignal {
-		clean := ansiCSI.ReplaceAll(tail, nil)
-
+	state, err := con.waitSignal(ctx, 20*time.Second, func(prompt *consolePrompt) consoleSignal {
 		switch {
-		case loginRejected.Match(clean):
+		case prompt.rejected():
 			return signalRejected
-		case passwordPrompt.Match(clean):
+		case prompt.password():
 			return signalPassword
-		case shellPrompt.Match(clean):
+		case prompt.shell():
 			return signalShell
 		}
 
@@ -258,13 +257,11 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 			return fmt.Errorf("send guest password: %w", err)
 		}
 
-		state, err = con.waitSignal(ctx, 20*time.Second, func(tail []byte) consoleSignal {
-			clean := ansiCSI.ReplaceAll(tail, nil)
-
+		state, err = con.waitSignal(ctx, 20*time.Second, func(prompt *consolePrompt) consoleSignal {
 			switch {
-			case loginRejected.Match(clean), loginPrompt.Match(clean):
+			case prompt.rejected(), prompt.login():
 				return signalRejected
-			case shellPrompt.Match(clean):
+			case prompt.shell():
 				return signalShell
 			}
 

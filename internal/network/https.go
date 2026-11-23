@@ -313,11 +313,12 @@ func (gateway *Gateway) interceptHTTPS(guest, upstream net.Conn, destination net
 		HTTP2: &http.HTTP2Config{
 			MaxReadFrameSize:              16384,
 			MaxReceiveBufferPerConnection: networkBuffer,
-			MaxReceiveBufferPerStream:     16 * 1024,
-			StrictMaxConcurrentRequests:   true,
-			SendPingTimeout:               30 * time.Second,
-			PingTimeout:                   networkDialTimeout,
-			WriteByteTimeout:              networkIdle,
+			// Let a bulk response use the existing connection receive budget.
+			MaxReceiveBufferPerStream:   networkBuffer,
+			StrictMaxConcurrentRequests: true,
+			SendPingTimeout:             30 * time.Second,
+			PingTimeout:                 networkDialTimeout,
+			WriteByteTimeout:            networkIdle,
 		},
 	}
 

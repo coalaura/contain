@@ -139,27 +139,61 @@ func (gateway *Gateway) exchangePlainDNS(ctx context.Context, upstream string, w
 		return response, err
 	}
 
-	response := make([]byte, dnsResponseLimit)
-	length, err := connection.Read(response)
-
-	return response[:length], err
+	return gateway.readDNSDatagram(connection)
 }
 
-func (gateway *Gateway) exchangeDoH(ctx context.Context, upstream string, wire []byte) ([]byte, error) {
-	transport := &http.Transport{
+func (gateway *Gateway) readDNSDatagram(reader io.Reader) ([]byte, error) {
+	var buffer []byte
+
+	select {
+	case buffer = <-gateway.dnsBuffers:
+	default:
+		buffer = make([]byte, dnsResponseLimit)
+	}
+
+	length, err := reader.Read(buffer)
+	if length > len(buffer)/2 {
+		// Transfer large replies directly instead of allocating another large copy.
+		return buffer[:length], err
+	}
+
+	response := bytes.Clone(buffer[:length])
+
+	// Retain at most one scratch buffer per concurrent DNS query, rather than
+	// allocating 64 KiB for every small UDP reply.
+	select {
+	case gateway.dnsBuffers <- buffer:
+	default:
+	}
+
+	return response, err
+}
+
+func (gateway *Gateway) newDNSTransport() *http.Transport {
+	return &http.Transport{
 		Proxy:                  nil,
 		DialContext:            gateway.dialDNSUpstream,
 		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
 		ForceAttemptHTTP2:      true,
-		DisableKeepAlives:      true,
+		MaxIdleConns:           4,
+		MaxIdleConnsPerHost:    2,
+		MaxConnsPerHost:        8,
+		IdleConnTimeout:        30 * time.Second,
 		DisableCompression:     true,
 		TLSHandshakeTimeout:    dnsUpstreamTimeout,
 		ResponseHeaderTimeout:  dnsUpstreamTimeout,
 		MaxResponseHeaderBytes: 16 * 1024,
+		HTTP2: &http.HTTP2Config{
+			MaxReceiveBufferPerConnection: networkBuffer,
+			MaxReceiveBufferPerStream:     16 * 1024,
+			StrictMaxConcurrentRequests:   true,
+			SendPingTimeout:               30 * time.Second,
+			PingTimeout:                   dnsUpstreamTimeout,
+		},
 	}
+}
 
-	defer transport.CloseIdleConnections()
-
+func (gateway *Gateway) exchangeDoH(ctx context.Context, upstream string, wire []byte) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, upstream, bytes.NewReader(wire))
 	if err != nil {
 		return nil, err
@@ -169,7 +203,7 @@ func (gateway *Gateway) exchangeDoH(ctx context.Context, upstream string, wire [
 	request.Header.Set("Accept", "application/dns-message")
 
 	// RoundTrip avoids redirects and environment proxies for the configured resolver.
-	response, err := transport.RoundTrip(request)
+	response, err := gateway.dnsTransport.RoundTrip(request)
 	if err != nil {
 		return nil, err
 	}
