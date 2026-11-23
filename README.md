@@ -145,8 +145,8 @@ Each image has its own CA at `~/.local/contain/images/<name>/network/ca/authorit
 | --- | --- |
 | Concurrency | 128 flows, 128 host sockets, 64 concurrent HTTPS requests, 8 HTTP/2 streams per guest connection |
 | Buffers & headers | 64 KiB TCP buffers, 16 KiB streaming buffers, 32 KiB header limit |
-| DNS | 32 concurrent upstream queries, 1024-entry / 8 MiB cache, 64 granted addresses per response; standard single-question `IN` queries up to 4 KiB, responses up to 65535 bytes (large UDP replies truncated for TCP retry) |
-| Timeouts | 4s per DNS upstream attempt, 10s other dial/handshake, 20s transport liveness, 30s UDP/DNS idle, 2m TCP/HTTPS idle |
+| DNS | 128 concurrent UDP requests outside the flow budget, 32 distinct concurrent upstream queries (identical misses share a lookup), 1024-entry / 8 MiB cache, 64 granted addresses per response; standard single-question `IN` queries up to 4 KiB, responses up to 65535 bytes (large UDP replies truncated for TCP retry) |
+| Timeouts | 4s per DNS upstream attempt, 10s other dial/handshake, 20s transport liveness, 30s forwarded UDP / DNS-over-TCP idle, 2m TCP/HTTPS idle |
 
 Excess traffic is rejected or dropped rather than queued unboundedly.
 

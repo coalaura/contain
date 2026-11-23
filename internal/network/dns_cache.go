@@ -76,6 +76,10 @@ func (cache *dnsCache) lookup(key string, identifier uint16) []byte {
 	cache.recent.MoveToFront(element)
 	cache.mutex.Unlock()
 
+	return entry.reply(identifier, now)
+}
+
+func (entry *dnsCacheEntry) reply(identifier uint16, now time.Time) []byte {
 	// Entries are immutable after publication, so eviction cannot race with copying.
 	wire := append([]byte(nil), entry.wire...)
 	binary.BigEndian.PutUint16(wire, identifier)

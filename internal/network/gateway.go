@@ -41,7 +41,8 @@ type Gateway struct {
 	cancel       context.CancelFunc
 	policy       *networkPolicy
 	dns          DNSConfig
-	dnsQueries   chan struct{}
+	dnsQueries   map[string]*dnsQueryFlight
+	dnsRequests  chan struct{}
 	dnsBuffers   chan []byte
 	dnsTransport *http.Transport
 	ca           *Authority
@@ -412,9 +413,8 @@ func (gateway *Gateway) retireTCP(endpoint tcpip.Endpoint) {
 
 func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 	destination := networkEndpointDestination(request.ID())
-	isDNS := gateway.policy.servesDNS(destination)
 
-	if !isDNS && (!gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open") {
+	if !gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open" {
 		gateway.logConnection("UDP", destination, errNetworkDenied)
 
 		return false
@@ -436,12 +436,6 @@ func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 		}
 
 		defer gateway.release(guest)
-
-		if isDNS {
-			gateway.serveDNS(guest, false)
-
-			return
-		}
 
 		host, err := gateway.dial(gateway.ctx, "udp", destination)
 		if err != nil {
@@ -541,6 +535,13 @@ func (gateway *Gateway) serve() {
 
 		if parsed.protocol == 1 || parsed.protocol == 58 {
 			gateway.forwardEcho(frame[:length], parsed)
+
+			continue
+		}
+
+		destination := netip.AddrPortFrom(parsed.destination, parsed.port)
+		if parsed.protocol == 17 && gateway.policy.servesDNS(destination) {
+			gateway.forwardDNSPacket(frame[:length], parsed)
 
 			continue
 		}
@@ -712,8 +713,9 @@ func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, cre
 		cancel:      cancel,
 		policy:      policy,
 		dns:         dns,
-		dnsQueries:  make(chan struct{}, 32),
-		dnsBuffers:  make(chan []byte, 32),
+		dnsQueries:  make(map[string]*dnsQueryFlight, dnsQueryConcurrency),
+		dnsRequests: make(chan struct{}, dnsRequestConcurrency),
+		dnsBuffers:  make(chan []byte, dnsQueryConcurrency),
 		ca:          ca,
 		credentials: credentials,
 		logger:      newNetworkLogger(output),

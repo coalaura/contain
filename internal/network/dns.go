@@ -3,7 +3,6 @@ package network
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -45,58 +44,12 @@ func (gateway *Gateway) resolveDNS(ctx context.Context, wire []byte, query *dnsm
 		return cached
 	}
 
-	select {
-	case gateway.dnsQueries <- struct{}{}:
-		defer func() {
-			<-gateway.dnsQueries
-		}()
-	default:
-		source = "query limit"
+	response, source = gateway.queryDNS(ctx, key, wire, query)
 
-		return dnsReply(query, dnsmessage.RCodeServerFailure, false)
-	}
-
-	upstreams := [2]string{gateway.dns.Primary, gateway.dns.Secondary}
-
-	for _, upstream := range upstreams {
-		if upstream == "" {
-			continue
-		}
-
-		response, message, err := gateway.exchangeDNS(ctx, upstream, wire, query)
-		if err != nil {
-			continue
-		}
-
-		var addresses []netip.Addr
-
-		if gateway.policy.mode == "isolated" && message.RCode == dnsmessage.RCodeSuccess {
-			addresses, err = gateway.policy.dnsAddresses(message)
-			if errors.Is(err, errNetworkDenied) {
-				source = "CNAME policy"
-
-				return dnsReply(query, dnsmessage.RCodeRefused, false)
-			}
-
-			if err != nil {
-				continue
-			}
-		}
-
-		entry := dnsCacheRecord(key, response, message, addresses)
-		if entry != nil {
-			gateway.policy.dns.store(entry)
-		}
-
-		return response
-	}
-
-	source = "upstream failed"
-
-	return dnsReply(query, dnsmessage.RCodeServerFailure, false)
+	return response
 }
 
-func (gateway *Gateway) serveDNS(connection net.Conn, stream bool) {
+func (gateway *Gateway) serveDNSTCP(connection net.Conn) {
 	var (
 		buffer [dnsQueryLimit + 1]byte
 		size   [2]byte
@@ -105,27 +58,17 @@ func (gateway *Gateway) serveDNS(connection net.Conn, stream bool) {
 	for {
 		connection.SetDeadline(time.Now().Add(30 * time.Second))
 
-		var (
-			length int
-			err    error
-		)
-
-		if stream {
-			_, err = io.ReadFull(connection, size[:])
-			if err != nil {
-				return
-			}
-
-			length = int(binary.BigEndian.Uint16(size[:]))
-			if length > dnsQueryLimit {
-				return
-			}
-
-			_, err = io.ReadFull(connection, buffer[:length])
-		} else {
-			length, err = connection.Read(buffer[:])
+		_, err := io.ReadFull(connection, size[:])
+		if err != nil {
+			return
 		}
 
+		length := int(binary.BigEndian.Uint16(size[:]))
+		if length > dnsQueryLimit {
+			return
+		}
+
+		_, err = io.ReadFull(connection, buffer[:length])
 		if err != nil {
 			return
 		}
@@ -137,23 +80,11 @@ func (gateway *Gateway) serveDNS(connection net.Conn, stream bool) {
 
 		response := gateway.resolveDNS(gateway.ctx, buffer[:length], query)
 
-		if !stream {
-			limit := 512
+		binary.BigEndian.PutUint16(size[:], uint16(len(response)))
 
-			if len(query.Additionals) != 0 {
-				limit = max(512, min(dnsUDPLimit, int(query.Additionals[0].Header.Class)))
-			}
-
-			if len(response) > limit {
-				response = dnsReply(query, dnsmessage.RCodeSuccess, true)
-			}
-		} else {
-			binary.BigEndian.PutUint16(size[:], uint16(len(response)))
-
-			_, err = connection.Write(size[:])
-			if err != nil {
-				return
-			}
+		_, err = connection.Write(size[:])
+		if err != nil {
+			return
 		}
 
 		_, err = connection.Write(response)
@@ -182,7 +113,7 @@ func (gateway *Gateway) forwardDNSTCP(request *tcp.ForwarderRequest) {
 		}
 
 		defer gateway.release(guest)
-		gateway.serveDNS(guest, true)
+		gateway.serveDNSTCP(guest)
 	})
 
 	if !started {
