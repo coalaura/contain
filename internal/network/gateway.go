@@ -363,7 +363,7 @@ func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 		defer gateway.release(guest)
 
 		if destination.Port() == 443 && gateway.policy.inspectHTTPS {
-			gateway.interceptHTTPS(guest, host, destination)
+			gateway.routeHTTPS(guest, host, destination)
 
 			return
 		}

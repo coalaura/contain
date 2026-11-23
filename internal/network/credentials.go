@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,6 +67,23 @@ func (credentials *Credentials) Placeholder() string {
 
 func (credentials *Credentials) Configuration() string {
 	return credentials.configuration
+}
+
+func (credentials *Credentials) intercepts(hostname []byte) bool {
+	if credentials == nil || len(hostname) == 0 {
+		return false
+	}
+
+	for index := range networkProviders {
+		provider := &networkProviders[index]
+		configured := credentials.keys[provider.name] != "" || credentials.oauth[provider.name] != nil
+
+		if configured && bytes.EqualFold(hostname, []byte(provider.host)) {
+			return true
+		}
+	}
+
+	return credentials.oauth["openai"] != nil && bytes.EqualFold(hostname, []byte("chatgpt.com"))
 }
 
 func (credentials *Credentials) inject(request *http.Request, identity string, gateway *Gateway) error {
