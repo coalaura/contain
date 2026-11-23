@@ -94,7 +94,7 @@ func (config Config) Validate() error {
 }
 
 func (config Config) InspectHTTPS() bool {
-	return config.Mode == "isolated" && config.Credentials == "opencode"
+	return (config.Mode == "isolated" || config.Mode == "open") && config.Credentials == "opencode"
 }
 
 func DefaultConfig() Config {

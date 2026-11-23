@@ -107,7 +107,7 @@ dns: # under machine, alongside network
 | Mode | DNS | IP rules | Host / LAN opt-ins |
 | --- | --- | --- | --- |
 | `isolated` (default) | Filtered by domain rules (`default` applies to unmatched names) | Filtered by IP/CIDR rules and DNS grants (`default` applies to unmatched IPs) | Enforced |
-| `open` | Forwarded without domain checks | Ignored (TCP/UDP relayed transparently, including UDP 443) | Enforced |
+| `open` | Forwarded without domain checks | Ignored (selective HTTPS interception when credentials are enabled; UDP 443 allowed) | Enforced |
 | `closed` | Blocked (including host DNS) | All networking blocked | All networking blocked |
 
 Sessions default to `isolated` mode with `default: deny`. Rules accept IPv4/IPv6 addresses, canonical CIDRs and exact ASCII domain names (use punycode for internationalized names). Domain matching is case-insensitive, ignores a final dot and never expands to subdomains or wildcards (`example.com` does not match `test.example.com`). Within each rule type, `deny` overrides `allow` and IP-only allow rules do not authorize DNS queries.
@@ -133,9 +133,9 @@ This is DNS-assisted IP filtering, not full domain enforcement. Once an IP is al
 
 #### HTTPS interception & CA
 
-Only `isolated` mode with `credentials: opencode` inspects TLS ClientHello SNI on TCP port 443 and intercepts domains covered by loaded credentials (including `chatgpt.com` for OpenAI OAuth). Other domains and connections without visible SNI are relayed unchanged, preserving end-to-end TLS; encrypted SNI cannot select a hidden domain for credential injection. ClientHello inspection is bounded to 64 KiB and 10 seconds; malformed or oversized hellos are rejected. Intercepted connections support HTTP/1.1 and HTTP/2 with incremental streaming, SSE, cancellation and backpressure. Upstream connections remain pinned to the original destination IP with standard TLS verification so guest SNI or `Host` cannot redirect traffic; invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. Certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS remain unsupported on intercepted domains.
+Both `isolated` and `open` modes with `credentials: opencode` inspect TLS ClientHello SNI on TCP port 443 and intercept domains covered by loaded credentials (including `chatgpt.com` for OpenAI OAuth). Other domains and connections without visible SNI are relayed unchanged, preserving end-to-end TLS; encrypted SNI cannot select a hidden domain for credential injection. ClientHello inspection is bounded to 64 KiB and 10 seconds; malformed or oversized hellos are rejected. Intercepted connections support HTTP/1.1 and HTTP/2 with incremental streaming, SSE, cancellation and backpressure. Upstream connections remain pinned to the original destination IP with standard TLS verification so guest SNI or `Host` cannot redirect traffic; invalid identities, mismatched `Host`, `CONNECT`, upgrades and failed TLS verification are rejected. Certificate-pinned clients, incompatible trust stores, ECH and non-HTTP TLS remain unsupported on intercepted domains.
 
-With `credentials` set to `none` (default), omitted or empty, HTTPS is relayed unchanged. `open` always relays TCP/UDP transparently (including UDP port 443 for HTTP/3/QUIC) and disables credential loading, injection and guest placeholders (as does `closed`). UDP port 443 remains blocked in `isolated`, including without credentials. Opaque encrypted payloads cannot be inspected and destination IP restrictions are not a content filter.
+With `credentials` set to `none` (default), omitted or empty, HTTPS is relayed unchanged in `isolated` and `open`. `closed` disables all networking, credential loading, injection and guest placeholders. UDP port 443 remains blocked in `isolated`, including without credentials; `open` relays it transparently for HTTP/3/QUIC, without credential injection. Opaque encrypted payloads cannot be inspected and destination IP restrictions are not a content filter.
 
 Each image has its own CA at `~/.local/contain/images/<name>/network/ca/authority.pem`, alongside its disk and boot files. The signing key stays under host permissions; only the public certificate is installed into Alpine's trust store and exported via `NODE_EXTRA_CA_CERTS`. The CA is created when needed and the guest trust store updates automatically at startup.
 
@@ -152,7 +152,7 @@ Excess traffic is rejected or dropped rather than queued unboundedly.
 
 ### Host OpenCode credentials
 
-Set `machine.network.credentials: opencode` with `mode: isolated` to use host API keys (OpenAI, OpenRouter, Anthropic, Groq, Mistral, DeepSeek) or host OAuth logins (OpenAI/ChatGPT, Anthropic) without exposing real secrets to the VM.
+Set `machine.network.credentials: opencode` with `mode: isolated` or `mode: open` to use host API keys (OpenAI, OpenRouter, Anthropic, Groq, Mistral, DeepSeek) or host OAuth logins (OpenAI/ChatGPT, Anthropic) without exposing real secrets to the VM.
 
 `contain` reads host `OPENCODE_AUTH_CONTENT` first (matching OpenCode 1.19.6 auth CLI precedence), then `$XDG_DATA_HOME/opencode/auth.json` or `~/.local/share/opencode/auth.json`. It supports `type: oauth` (`access`, `refresh`, `expires` in Unix milliseconds, optional OpenAI `accountId`) and does not import SQLite integration credentials. Malformed entries, OAuth for other providers, `wellknown` entries and unrecognized providers fail startup.
 
@@ -175,7 +175,7 @@ Other operations on a provider with a loaded host key receive HTTP 403 (includin
 
 #### OAuth refresh & isolation
 
-OAuth refresh runs on the host shortly before expiry against the fixed OpenAI or Anthropic token endpoint with normal TLS verification and no redirects. Refresh uses the same host DNS resolver, domain rules, cache and temporary IP grants as guest queries and resolved IPs must pass destination policy. With `default: deny`, allow the inference domains plus `auth.openai.com` (OpenAI) or `console.anthropic.com` (Anthropic); no upstream DNS-server IP rules are needed. Failed refreshes fail the request with a short retry cooldown; proxied requests are never buffered or replayed.
+OAuth refresh runs on the host shortly before expiry against the fixed OpenAI or Anthropic token endpoint with normal TLS verification and no redirects. Refresh uses the same host DNS resolver, domain rules, cache and temporary IP grants as guest queries and resolved IPs must pass destination policy. In `isolated` mode with `default: deny`, allow the inference domains plus `auth.openai.com` (OpenAI) or `console.anthropic.com` (Anthropic); no upstream DNS-server IP rules are needed. Failed refreshes fail the request with a short retry cooldown; proxied requests are never buffered or replayed.
 
 Rotated tokens are journaled in owner-only `~/.local/contain/network/auth` before atomic writeback to file-backed OpenCode logins (preserving unknown fields and other providers). This host-account state is shared across images; for env-supplied credentials, rotations are retained across restarts for the same original value without updating the parent environment.
 
