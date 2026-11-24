@@ -57,13 +57,15 @@ func listImages(ctx context.Context, command *cli.Command) error {
 		}
 
 		if count == 0 {
-			_, err = fmt.Fprintln(writer, "IMAGE\tSIZE")
+			_, err = fmt.Fprintln(writer, "IMAGE\tSIZE\tKERNEL")
 			if err != nil {
 				return err
 			}
 		}
 
-		_, err = fmt.Fprintf(writer, "%s\t%s\n", name, formatImageSize(size))
+		kernel := imageKernelVersion(filepath.Join(directory, name, "vmlinuz-virt"))
+
+		_, err = fmt.Fprintf(writer, "%s\t%s\t%s\n", name, formatImageSize(size), kernel)
 		if err != nil {
 			return err
 		}
