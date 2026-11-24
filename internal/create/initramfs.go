@@ -1,11 +1,8 @@
 package create
 
 import (
-	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	_ "embed"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +11,7 @@ import (
 
 type installerFile struct {
 	name string
-	mode int64
+	mode uint32
 	body string
 }
 
@@ -25,7 +22,7 @@ var installerScript string
 var toolsScript string
 
 func AppendInstaller(path, repository, marker, kernel string, tools bool, publicCA []byte) error {
-	overlay, err := installerOverlay(repository, marker, kernel, tools, publicCA)
+	files, err := installerFiles(repository, marker, kernel, tools, publicCA)
 	if err != nil {
 		return err
 	}
@@ -37,16 +34,18 @@ func AppendInstaller(path, repository, marker, kernel string, tools bool, public
 
 	defer output.Close()
 
-	// Linux unpacks concatenated initramfs archives. Keep Alpine's archive intact
-	// and add a local apkovl for its diskless bootstrap to extract into the RAM root.
+	// Linux unpacks concatenated initramfs archives, exposing our rdinit directly
+	// alongside Alpine's existing tools, keys and early drivers.
 	compressed := gzip.NewWriter(output)
 
-	err = writeInitramfsEntry(compressed, "contain.apkovl.tar.gz", 0100644, overlay)
-	if err != nil {
-		return err
+	for _, entry := range files {
+		err = writeInitramfsEntry(compressed, entry.name, entry.mode, entry.body)
+		if err != nil {
+			return err
+		}
 	}
 
-	err = writeInitramfsEntry(compressed, "TRAILER!!!", 0, nil)
+	err = writeInitramfsEntry(compressed, "TRAILER!!!", 0, "")
 	if err != nil {
 		return err
 	}
@@ -59,7 +58,7 @@ func AppendInstaller(path, repository, marker, kernel string, tools bool, public
 	return output.Close()
 }
 
-func installerOverlay(repository, marker, kernel string, tools bool, publicCA []byte) ([]byte, error) {
+func installerFiles(repository, marker, kernel string, tools bool, publicCA []byte) ([]installerFile, error) {
 	err := ValidateKernel(kernel)
 	if err != nil {
 		return nil, err
@@ -74,11 +73,6 @@ func installerOverlay(repository, marker, kernel string, tools bool, publicCA []
 		repositories += "@edge " + AlpineMirror + "/edge/community\n"
 	}
 
-	var buffer bytes.Buffer
-
-	compressed := gzip.NewWriter(&buffer)
-	archive := tar.NewWriter(compressed)
-
 	// Windows checkouts can use CRLF, but Linux requires LF in the shebang.
 	script := strings.ReplaceAll(installerScript, "\r\n", "\n")
 	script = strings.ReplaceAll(script, "@STATUS_MARKER@", marker)
@@ -86,49 +80,27 @@ func installerOverlay(repository, marker, kernel string, tools bool, publicCA []
 	script = strings.ReplaceAll(script, "@KERNEL_PACKAGE@", packageName)
 
 	files := make([]installerFile, 0, 4)
-	files = append(files, installerFile{name: "contain.crt", mode: 0644, body: string(publicCA)})
-	files = append(files, installerFile{name: "contain-install.sh", mode: 0755, body: script})
-	files = append(files, installerFile{name: "etc/apk/repositories", mode: 0644, body: repositories})
+	files = append(files, installerFile{name: "contain.crt", mode: 0100644, body: string(publicCA)})
+	files = append(files, installerFile{name: "contain-install.sh", mode: 0100755, body: script})
+	files = append(files, installerFile{name: "etc/apk/repositories", mode: 0100644, body: repositories})
 
 	if tools {
 		body := strings.ReplaceAll(toolsScript, "\r\n", "\n")
 
-		files = append(files, installerFile{name: "contain-tools.sh", mode: 0755, body: body})
+		files = append(files, installerFile{name: "contain-tools.sh", mode: 0100755, body: body})
 	}
 
-	for _, entry := range files {
-		header := &tar.Header{
-			Name:     entry.name,
-			Mode:     entry.mode,
-			Size:     int64(len(entry.body)),
-			Typeflag: tar.TypeReg,
-		}
-
-		err := archive.WriteHeader(header)
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = io.WriteString(archive, entry.body)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err = archive.Close()
-	closeErr := compressed.Close()
-
-	if err != nil || closeErr != nil {
-		return nil, errors.Join(err, closeErr)
-	}
-
-	return buffer.Bytes(), nil
+	return files, nil
 }
 
-func writeInitramfsEntry(output io.Writer, name string, mode uint32, data []byte) error {
+func writeInitramfsEntry(output io.Writer, name string, mode uint32, data string) error {
+	return writeInitramfsFile(output, name, mode, int64(len(data)), strings.NewReader(data))
+}
+
+func writeInitramfsFile(output io.Writer, name string, mode uint32, size int64, data io.Reader) error {
 	// A newc header is 110 bytes; both the NUL-terminated name and body end on
-	// four-byte boundaries. Only the apkovl and trailer are needed in this archive.
-	_, err := fmt.Fprintf(output, "070701%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x", 1, mode, 0, 0, 1, 0, len(data), 0, 0, 0, 0, len(name)+1, 0)
+	// four-byte boundaries.
+	_, err := fmt.Fprintf(output, "070701%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x", 1, mode, 0, 0, 1, 0, size, 0, 0, 0, 0, len(name)+1, 0)
 	if err != nil {
 		return err
 	}
@@ -145,11 +117,11 @@ func writeInitramfsEntry(output io.Writer, name string, mode uint32, data []byte
 		return err
 	}
 
-	_, err = output.Write(data)
+	_, err = io.CopyN(output, data, size)
 	if err != nil {
 		return err
 	}
 
-	_, err = output.Write(padding[:(-len(data))&3])
+	_, err = output.Write(padding[:(-size)&3])
 	return err
 }

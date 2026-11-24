@@ -388,7 +388,7 @@ func machineArgs(machine *MachineConfig, address, cmdline string, temporary bool
 		"--memory", fmt.Sprintf("%dG", machine.Memory),
 		"--kernel", machine.kernel,
 		"--initrd", machine.initrd,
-		"--virtio-blk", disk + ",pcie_port=disk",
+		"--virtio-blk", disk + ",pcie_port=disk,serial=contain-root",
 		"--cmdline", cmdline,
 		"--pcie-root-complex", "rc0",
 		"--pcie-root-port", "rc0:disk",

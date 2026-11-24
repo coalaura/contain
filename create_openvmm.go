@@ -12,7 +12,7 @@ import (
 
 const installTimeout = 20 * time.Minute
 
-func installAlpine(ctx context.Context, machine *MachineConfig, repository, marker string, output io.Writer) error {
+func installAlpine(ctx context.Context, machine *MachineConfig, modloop, marker string, output io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 
@@ -23,10 +23,9 @@ func installAlpine(ctx context.Context, machine *MachineConfig, repository, mark
 
 	defer cleanup()
 
-	modloop := repository + "/releases/x86_64/netboot/modloop-virt"
-	cmdline := "console=hvc0 modules=virtio_pci,virtio_blk,virtio_net ip=dhcp alpine_repo=" + repository + "/main modloop=" + modloop + " apkovl=/contain.apkovl.tar.gz init=/contain-install.sh"
+	cmdline := "console=hvc0 rdinit=/contain-install.sh"
 
-	args, err := machineArgs(machine, address, cmdline, false, 4)
+	args, err := machineArgs(machine, address, cmdline, false, 12)
 	if err != nil {
 		return err
 	}
@@ -40,6 +39,7 @@ func installAlpine(ctx context.Context, machine *MachineConfig, repository, mark
 
 	args = append(args, "--pcie-root-port", "rc0:export", "--virtio-fs", "pcie_port=export:contain_export,"+exportDirectory)
 	args = append(args, "--pcie-root-port", "rc0:net", "--virtio-net", "pcie_port=net:consomme")
+	args = append(args, "--pcie-root-port", "rc0:modloop", "--virtio-blk", "file:"+modloop+",ro,pcie_port=modloop,serial=contain-modloop")
 
 	processCtx, stopProcess := context.WithCancel(ctx)
 	defer stopProcess()

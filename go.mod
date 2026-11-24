@@ -14,6 +14,7 @@ require (
 )
 
 require (
+	github.com/djherbis/times v1.6.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	golang.org/x/exp v0.0.0-20261121134650-e1094eeca1b5 // indirect

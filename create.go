@@ -127,7 +127,9 @@ func buildAlpine(ctx context.Context, directory string, size int64, kernel strin
 	machine.kernel = filepath.Join(directory, "netboot-kernel")
 	machine.initrd = filepath.Join(directory, "netboot-initramfs")
 
-	baseURL, publicCA, err := prepareAlpine(ctx, directory, size, &machine)
+	modloop := filepath.Join(directory, "netboot-modloop")
+
+	baseURL, publicCA, err := prepareAlpine(ctx, directory, size, &machine, modloop)
 	if err != nil {
 		return err
 	}
@@ -145,7 +147,7 @@ func buildAlpine(ctx context.Context, directory string, size int64, kernel strin
 		log.Subln("Including common development tools and dependencies.")
 	}
 
-	err = installAlpine(ctx, &machine, baseURL, marker, output)
+	err = installAlpine(ctx, &machine, modloop, marker, output)
 	if err != nil {
 		return err
 	}
@@ -162,7 +164,12 @@ func buildAlpine(ctx context.Context, directory string, size int64, kernel strin
 		return err
 	}
 
-	return os.Remove(machine.initrd)
+	err = os.Remove(machine.initrd)
+	if err != nil {
+		return err
+	}
+
+	return os.Remove(modloop)
 }
 
 func requireNewImage(directory string) error {

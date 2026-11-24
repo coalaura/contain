@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -11,7 +13,7 @@ import (
 	"github.com/coalaura/contain/internal/network"
 )
 
-func prepareAlpine(ctx context.Context, directory string, size int64, machine *MachineConfig) (string, []byte, error) {
+func prepareAlpine(ctx context.Context, directory string, size int64, machine *MachineConfig, modloop string) (string, []byte, error) {
 	err := ctx.Err()
 	if err != nil {
 		return "", nil, err
@@ -31,7 +33,7 @@ func prepareAlpine(ctx context.Context, directory string, size int64, machine *M
 	log.Stepf("Creating ext4 disk (%d bytes) and private network CA...\n", size)
 	log.Stepln("Resolving latest stable Alpine release...")
 
-	// Fixed fan-out: disk, CA and release resolution, then at most two downloads.
+	// Fixed fan-out: disk and CA work alongside at most three ISO range downloads.
 	workers.Go(func() {
 		err := imagecreate.CreateDisk(machine.disk, size)
 		if err != nil {
@@ -51,27 +53,33 @@ func prepareAlpine(ctx context.Context, directory string, size int64, machine *M
 	})
 
 	workers.Go(func() {
-		branch, err := imagecreate.AlpineBranch(ctx, client)
+		release, err := imagecreate.ResolveAlpine(ctx, client)
 		if err != nil {
 			cancel(err)
 
 			return
 		}
 
-		baseURL = imagecreate.AlpineMirror + "/" + branch
-		netbootURL := baseURL + "/releases/x86_64/netboot/"
+		baseURL = imagecreate.AlpineMirror + "/" + release.Branch
+		archive := filepath.Join(directory, "netboot.iso")
 
-		log.Stepf("Downloading Alpine %s netboot kernel and initramfs...\n", branch)
+		log.Stepf("Downloading Alpine %s installer kernel, initramfs and modloop...\n", release.Version)
 
-		// The installer always boots virt; the installed image uses the selected kernel.
-		workers.Go(func() {
-			err := imagecreate.DownloadAlpine(ctx, client, netbootURL+"vmlinuz-virt", machine.kernel)
-			if err != nil {
-				cancel(err)
-			}
-		})
+		err = imagecreate.DownloadAlpine(ctx, client, &release, archive)
+		if err != nil {
+			cancel(err)
 
-		err = imagecreate.DownloadAlpine(ctx, client, netbootURL+"initramfs-virt", machine.initrd)
+			return
+		}
+
+		err = imagecreate.ExtractNetboot(archive, machine.kernel, machine.initrd, modloop)
+		if err != nil {
+			cancel(err)
+
+			return
+		}
+
+		err = os.Remove(archive)
 		if err != nil {
 			cancel(err)
 		}
