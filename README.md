@@ -251,7 +251,7 @@ contain create --image dev --tools
 contain create --image general --kernel lts
 contain create --image testing --kernel stable
 contain --image dev        # run the named image
-contain list               # list images and their size
+contain list               # list image storage, versions and status
 contain remove dev         # type dev again to confirm permanent deletion
 ```
 
@@ -263,7 +263,7 @@ With `--tools`, an extra step installs common packages (Python, C/C++ build tool
 
 The completed `disk.raw`, `vmlinuz-virt`, `initramfs-virt` and private `network/ca/` directory are stored in `~/.local/contain/images/<name>/` (default name `alpine`, login `root` / `alpine`). The exported boot filenames stay the same for all kernel variations; their contents match the selected kernel. Both `create` and `run` accept `--image NAME`, defaulting to `alpine`; image selection is session-only and replaces the old `machine.source` setting, which is ignored. Names must start with a letter or digit and contain only ASCII letters, digits, hyphens or underscores. Existing image directories are refused. Temporary guest-helper and snapshot exports are created inside the selected image directory and removed after each session and installer output is captured in `~/.local/contain/logs/contain-create-<session>.log` using a 12-character lowercase hex session ID.
 
-`contain list` shows images alphabetically with the total logical size of their regular files in binary units (including the full provisioned disk size, rather than host space allocated to sparse files). `contain remove NAME` permanently deletes the entire image directory, including its disk, boot files and private CA, only after you type the exact full name at the confirmation prompt. Listing and removal do not require OpenVMM or a configuration file.
+`contain list` shows images alphabetically with `SIZE` (logical storage), `ALLOCATED` (host storage used), Alpine and kernel versions, and status. Storage totals include all regular image files in binary units; allocated storage reflects host space used by sparse files, while logical storage includes the full provisioned disk size. Versions are read directly from the disk and kernel files, with `unknown` shown when unavailable. Status is `ready` when `disk.raw`, `vmlinuz-virt` and `initramfs-virt` are present as nonempty regular files, otherwise `incomplete`; this is not a bootability check. `contain remove NAME` permanently deletes the entire image directory, including its disk, boot files and private CA, only after you type the exact full name at the confirmation prompt. Listing and removal do not require OpenVMM or a configuration file.
 
 The `alpine/` directory also includes helper scripts for building an image on a Linux host:
 

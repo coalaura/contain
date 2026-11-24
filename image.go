@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"text/tabwriter"
@@ -51,21 +50,25 @@ func listImages(ctx context.Context, command *cli.Command) error {
 			continue
 		}
 
-		size, err := imageSize(ctx, filepath.Join(directory, name))
+		imageDirectory := filepath.Join(directory, name)
+
+		size, err := imageSize(ctx, imageDirectory)
 		if err != nil {
 			return fmt.Errorf("image %q: %w", name, err)
 		}
 
 		if count == 0 {
-			_, err = fmt.Fprintln(writer, "IMAGE\tSIZE\tKERNEL")
+			_, err = fmt.Fprintln(writer, "IMAGE\tSIZE\tALLOCATED\tALPINE\tKERNEL\tSTATUS")
 			if err != nil {
 				return err
 			}
 		}
 
-		kernel := imageKernelVersion(filepath.Join(directory, name, "vmlinuz-virt"))
+		alpine := imageAlpineVersion(filepath.Join(imageDirectory, "disk.raw"))
+		kernel := imageKernelVersion(filepath.Join(imageDirectory, "vmlinuz-virt"))
+		status := imageStatus(imageDirectory)
 
-		_, err = fmt.Fprintf(writer, "%s\t%s\t%s\n", name, formatImageSize(size), kernel)
+		_, err = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", name, formatImageSize(size.logical), formatImageSize(size.allocated), alpine, kernel, status)
 		if err != nil {
 			return err
 		}
@@ -180,53 +183,6 @@ func imagesDirectory() (string, error) {
 	}
 
 	return filepath.Join(home, ".local", "contain", "images"), nil
-}
-
-func imageSize(ctx context.Context, directory string) (int64, error) {
-	var size int64
-
-	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		err = ctx.Err()
-		if err != nil {
-			return err
-		}
-
-		if !entry.Type().IsRegular() {
-			return nil
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-
-		size += info.Size()
-
-		return nil
-	})
-
-	return size, err
-}
-
-func formatImageSize(size int64) string {
-	if size < 1024 {
-		return fmt.Sprintf("%d B", size)
-	}
-
-	units := [...]string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
-	amount := float64(size) / 1024
-	unit := 0
-
-	for amount >= 1024 && unit < len(units)-1 {
-		amount /= 1024
-		unit++
-	}
-
-	return fmt.Sprintf("%.2f %s", amount, units[unit])
 }
 
 func confirmImageRemoval(ctx context.Context, input io.Reader, output io.Writer, name string) error {
