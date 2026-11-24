@@ -8,7 +8,7 @@ import (
 
 const DefaultKernel = "virt"
 
-var kernelVariants = [...]string{DefaultKernel, "lts"}
+var kernelVariants = [...]string{DefaultKernel, "lts", "stable"}
 
 func ValidateKernel(kernel string) error {
 	if !slices.Contains(kernelVariants[:], kernel) {

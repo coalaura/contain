@@ -32,7 +32,7 @@ mount --bind /dev /mnt/dev
 mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
 
-apk --root /mnt --initdb --no-cache add alpine-base linux-@KERNEL@ bash ca-certificates iproute2
+apk --root /mnt --initdb --no-cache add alpine-base @KERNEL_PACKAGE@ bash ca-certificates iproute2
 
 mkdir -p /mnt/usr/local/share/ca-certificates
 cp /contain.crt /mnt/usr/local/share/ca-certificates/contain.crt

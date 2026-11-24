@@ -42,7 +42,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:            "contain",
 		Usage:           "Run tools and agents in an isolated Linux workspace",
-		UsageText:       "contain [run] [options]\ncontain create [--image NAME] [--size 8G] [--kernel virt|lts] [--tools]\ncontain list\ncontain remove NAME",
+		UsageText:       "contain [run] [options]\ncontain create [--image NAME] [--size 8G] [--kernel virt|lts|stable] [--tools]\ncontain list\ncontain remove NAME",
 		Version:         version,
 		HideHelpCommand: true,
 		DefaultCommand:  "run",
@@ -86,7 +86,7 @@ func main() {
 			{
 				Name:      "create",
 				Usage:     "Create an Alpine Linux guest image",
-				UsageText: "contain create [--image NAME] [--size 8G] [--kernel virt|lts] [--tools]",
+				UsageText: "contain create [--image NAME] [--size 8G] [--kernel virt|lts|stable] [--tools]",
 				Flags: []cli.Flag{
 					imageFlag(),
 					&cli.StringFlag{
@@ -97,7 +97,7 @@ func main() {
 					},
 					&cli.StringFlag{
 						Name:  "kernel",
-						Usage: "Alpine kernel variation: virt (VM-optimized) or lts (general-purpose)",
+						Usage: "Alpine kernel variation: virt (VM-optimized), lts (general-purpose), or stable (newer kernel from edge)",
 						Value: imagecreate.DefaultKernel,
 					},
 					&cli.BoolFlag{

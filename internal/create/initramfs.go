@@ -65,6 +65,15 @@ func installerOverlay(repository, marker, kernel string, tools bool, publicCA []
 		return nil, err
 	}
 
+	packageName := "linux-" + kernel
+	repositories := repository + "/main\n" + repository + "/community\n"
+
+	if kernel == "stable" {
+		// Tag edge so the base system and tools still use the stable release.
+		packageName += "@edge"
+		repositories += "@edge " + AlpineMirror + "/edge/community\n"
+	}
+
 	var buffer bytes.Buffer
 
 	compressed := gzip.NewWriter(&buffer)
@@ -74,11 +83,12 @@ func installerOverlay(repository, marker, kernel string, tools bool, publicCA []
 	script := strings.ReplaceAll(installerScript, "\r\n", "\n")
 	script = strings.ReplaceAll(script, "@STATUS_MARKER@", marker)
 	script = strings.ReplaceAll(script, "@KERNEL@", kernel)
+	script = strings.ReplaceAll(script, "@KERNEL_PACKAGE@", packageName)
 
 	files := make([]installerFile, 0, 4)
 	files = append(files, installerFile{name: "contain.crt", mode: 0644, body: string(publicCA)})
 	files = append(files, installerFile{name: "contain-install.sh", mode: 0755, body: script})
-	files = append(files, installerFile{name: "etc/apk/repositories", mode: 0644, body: repository + "/main\n" + repository + "/community\n"})
+	files = append(files, installerFile{name: "etc/apk/repositories", mode: 0644, body: repositories})
 
 	if tools {
 		body := strings.ReplaceAll(toolsScript, "\r\n", "\n")
