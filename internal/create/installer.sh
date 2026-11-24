@@ -32,7 +32,7 @@ mount --bind /dev /mnt/dev
 mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
 
-apk --root /mnt --initdb --no-cache add alpine-base linux-virt bash ca-certificates iproute2
+apk --root /mnt --initdb --no-cache add alpine-base linux-@KERNEL@ bash ca-certificates iproute2
 
 mkdir -p /mnt/usr/local/share/ca-certificates
 cp /contain.crt /mnt/usr/local/share/ca-certificates/contain.crt
@@ -80,8 +80,8 @@ cat > /root/.bash_profile <<'BASH_PROFILE'
 . "$HOME/.bashrc"
 BASH_PROFILE
 
-test -s /boot/vmlinuz-virt
-test -s /boot/initramfs-virt
+test -s /boot/vmlinuz-@KERNEL@
+test -s /boot/initramfs-@KERNEL@
 CONFIGURE
 
 if [ -f /contain-tools.sh ]; then
@@ -91,7 +91,9 @@ fi
 mkdir -p /export
 modprobe virtiofs
 mount -t virtiofs contain_export /export
-cp /mnt/boot/vmlinuz-virt /mnt/boot/initramfs-virt /export/
+# Keep the host-side filenames stable regardless of the installed variation.
+cp /mnt/boot/vmlinuz-@KERNEL@ /export/vmlinuz-virt
+cp /mnt/boot/initramfs-@KERNEL@ /export/initramfs-virt
 
 sync
 umount /export

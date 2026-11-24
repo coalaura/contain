@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	imagecreate "github.com/coalaura/contain/internal/create"
 	"github.com/coalaura/contain/internal/mount"
 	"github.com/coalaura/contain/internal/snapshot"
 	"github.com/coalaura/plain/minimal"
@@ -41,7 +42,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:            "contain",
 		Usage:           "Run tools and agents in an isolated Linux workspace",
-		UsageText:       "contain [run] [options]\ncontain create [--image NAME] [--size 8G] [--tools]\ncontain list\ncontain remove NAME",
+		UsageText:       "contain [run] [options]\ncontain create [--image NAME] [--size 8G] [--kernel virt|lts] [--tools]\ncontain list\ncontain remove NAME",
 		Version:         version,
 		HideHelpCommand: true,
 		DefaultCommand:  "run",
@@ -85,7 +86,7 @@ func main() {
 			{
 				Name:      "create",
 				Usage:     "Create an Alpine Linux guest image",
-				UsageText: "contain create [--image NAME] [--size 8G] [--tools]",
+				UsageText: "contain create [--image NAME] [--size 8G] [--kernel virt|lts] [--tools]",
 				Flags: []cli.Flag{
 					imageFlag(),
 					&cli.StringFlag{
@@ -93,6 +94,11 @@ func main() {
 						Aliases: []string{"s"},
 						Usage:   "Disk size in bytes or with a K, M, G or T suffix (binary units; minimum 512M)",
 						Value:   "8G",
+					},
+					&cli.StringFlag{
+						Name:  "kernel",
+						Usage: "Alpine kernel variation: virt (VM-optimized) or lts (general-purpose)",
+						Value: imagecreate.DefaultKernel,
 					},
 					&cli.BoolFlag{
 						Name:    "tools",

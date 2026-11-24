@@ -39,6 +39,13 @@ func create(ctx context.Context, command *cli.Command) error {
 		return fmt.Errorf("--size: %w", err)
 	}
 
+	kernel := command.String("kernel")
+
+	err = imagecreate.ValidateKernel(kernel)
+	if err != nil {
+		return fmt.Errorf("--kernel: %w", err)
+	}
+
 	start := time.Now()
 	sessionID := sessionlog.NewID()
 
@@ -77,7 +84,7 @@ func create(ctx context.Context, command *cli.Command) error {
 
 	log.Subf("Installer log: %s\n", output.Name())
 
-	err = buildAlpine(ctx, staging, size, command.Bool("tools"), output)
+	err = buildAlpine(ctx, staging, size, kernel, command.Bool("tools"), output)
 	if err != nil {
 		fmt.Fprintln(output, err)
 	}
@@ -115,7 +122,7 @@ func create(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func buildAlpine(ctx context.Context, directory string, size int64, tools bool, output io.Writer) error {
+func buildAlpine(ctx context.Context, directory string, size int64, kernel string, tools bool, output io.Writer) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 
 	log.Stepln("Resolving latest stable Alpine release...")
@@ -145,6 +152,7 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 
 	log.Stepf("Downloading Alpine %s netboot kernel and initramfs...\n", branch)
 
+	// The installer always boots virt; the installed image uses the selected kernel.
 	err = imagecreate.DownloadAlpine(ctx, client, netbootURL+"vmlinuz-virt", machine.kernel)
 	if err != nil {
 		return err
@@ -162,12 +170,12 @@ func buildAlpine(ctx context.Context, directory string, size int64, tools bool, 
 		return err
 	}
 
-	err = imagecreate.AppendInstaller(machine.initrd, baseURL, marker, tools, authority.PublicCertificate())
+	err = imagecreate.AppendInstaller(machine.initrd, baseURL, marker, kernel, tools, authority.PublicCertificate())
 	if err != nil {
 		return fmt.Errorf("prepare installer initramfs: %w", err)
 	}
 
-	log.Stepln("Installing Alpine in OpenVMM...")
+	log.Stepf("Installing Alpine with linux-%s in OpenVMM...\n", kernel)
 
 	if tools {
 		log.Subln("Including common development tools and dependencies.")

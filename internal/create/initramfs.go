@@ -24,8 +24,8 @@ var installerScript string
 //go:embed tools.sh
 var toolsScript string
 
-func AppendInstaller(path, repository, marker string, tools bool, publicCA []byte) error {
-	overlay, err := installerOverlay(repository, marker, tools, publicCA)
+func AppendInstaller(path, repository, marker, kernel string, tools bool, publicCA []byte) error {
+	overlay, err := installerOverlay(repository, marker, kernel, tools, publicCA)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,12 @@ func AppendInstaller(path, repository, marker string, tools bool, publicCA []byt
 	return output.Close()
 }
 
-func installerOverlay(repository, marker string, tools bool, publicCA []byte) ([]byte, error) {
+func installerOverlay(repository, marker, kernel string, tools bool, publicCA []byte) ([]byte, error) {
+	err := ValidateKernel(kernel)
+	if err != nil {
+		return nil, err
+	}
+
 	var buffer bytes.Buffer
 
 	compressed := gzip.NewWriter(&buffer)
@@ -68,6 +73,7 @@ func installerOverlay(repository, marker string, tools bool, publicCA []byte) ([
 	// Windows checkouts can use CRLF, but Linux requires LF in the shebang.
 	script := strings.ReplaceAll(installerScript, "\r\n", "\n")
 	script = strings.ReplaceAll(script, "@STATUS_MARKER@", marker)
+	script = strings.ReplaceAll(script, "@KERNEL@", kernel)
 
 	files := make([]installerFile, 0, 4)
 	files = append(files, installerFile{name: "contain.crt", mode: 0644, body: string(publicCA)})
@@ -99,7 +105,7 @@ func installerOverlay(repository, marker string, tools bool, publicCA []byte) ([
 		}
 	}
 
-	err := archive.Close()
+	err = archive.Close()
 	closeErr := compressed.Close()
 
 	if err != nil || closeErr != nil {
