@@ -6,14 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	imagecreate "github.com/coalaura/contain/internal/create"
-	"github.com/coalaura/contain/internal/network"
 	"github.com/coalaura/contain/internal/sessionlog"
 	"github.com/urfave/cli/v3"
 )
@@ -123,54 +121,20 @@ func create(ctx context.Context, command *cli.Command) error {
 }
 
 func buildAlpine(ctx context.Context, directory string, size int64, kernel string, tools bool, output io.Writer) error {
-	client := &http.Client{Timeout: 5 * time.Minute}
-
-	log.Stepln("Resolving latest stable Alpine release...")
-
-	branch, err := imagecreate.AlpineBranch(ctx, client)
-	if err != nil {
-		return err
-	}
-
-	log.Stepf("Creating ext4 disk (%d bytes)...\n", size)
-
-	disk := filepath.Join(directory, "disk.raw")
-
-	err = imagecreate.CreateDisk(disk, size)
-	if err != nil {
-		return err
-	}
-
 	machine := DefaultConfig().Machine
 
-	machine.disk = disk
+	machine.disk = filepath.Join(directory, "disk.raw")
 	machine.kernel = filepath.Join(directory, "netboot-kernel")
 	machine.initrd = filepath.Join(directory, "netboot-initramfs")
 
-	baseURL := imagecreate.AlpineMirror + "/" + branch
-	netbootURL := baseURL + "/releases/x86_64/netboot/"
-
-	log.Stepf("Downloading Alpine %s netboot kernel and initramfs...\n", branch)
-
-	// The installer always boots virt; the installed image uses the selected kernel.
-	err = imagecreate.DownloadAlpine(ctx, client, netbootURL+"vmlinuz-virt", machine.kernel)
-	if err != nil {
-		return err
-	}
-
-	err = imagecreate.DownloadAlpine(ctx, client, netbootURL+"initramfs-virt", machine.initrd)
+	baseURL, publicCA, err := prepareAlpine(ctx, directory, size, &machine)
 	if err != nil {
 		return err
 	}
 
 	marker := "__CONTAIN_INSTALL_" + rand.Text() + ":"
 
-	authority, err := network.LoadAuthority(directory)
-	if err != nil {
-		return err
-	}
-
-	err = imagecreate.AppendInstaller(machine.initrd, baseURL, marker, kernel, tools, authority.PublicCertificate())
+	err = imagecreate.AppendInstaller(machine.initrd, baseURL, marker, kernel, tools, publicCA)
 	if err != nil {
 		return fmt.Errorf("prepare installer initramfs: %w", err)
 	}
