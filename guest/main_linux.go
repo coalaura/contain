@@ -85,6 +85,8 @@ func startGuestService(arguments ...string) error {
 	// failures before the parent returns control to the guest login shell.
 	command := exec.Command(executable, arguments...)
 
+	// Background helpers must not keep the workspace mount busy during shutdown.
+	command.Dir = "/"
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	command.ExtraFiles = []*os.File{writer}
 

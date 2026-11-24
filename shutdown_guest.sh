@@ -3,6 +3,8 @@ shutdown_guest() {
 
 	printf 'Shutting down...\n' >&2
 
+	# Release the working directory before OpenRC unmounts host filesystems.
+	cd /
 	poweroff
 }
 

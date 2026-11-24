@@ -27,7 +27,7 @@ var guestCommandScript string
 // Tabs would trigger completion in the interactive console while transmitting the script.
 var (
 	guestShutdownCommand = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
-	guestCommandPrefix   = "bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
+	guestCommandPrefix   = "exec bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
 )
 
 func (c *console) suspendHistory(ctx context.Context) error {
@@ -50,6 +50,7 @@ func (c *console) startCommand(ctx context.Context, command string) error {
 
 	// Restore history in the same input that starts the command, before it takes over stdin.
 	// Split the marker to distinguish output from echoed input.
+	// Replace the login shell so it cannot keep the workspace busy during shutdown.
 	payload := guestResumeHistoryCommand + "; " + guestCommandPrefix + shellQuote(command) + " " + shellQuote(left) + " " + shellQuote(right)
 
 	err := c.sendLine(ctx, payload)
