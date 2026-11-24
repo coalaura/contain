@@ -16,22 +16,22 @@ import (
 const (
 	guestSuspendHistoryCommand = `__contain_history_enabled=0; if [[ -o history ]]; then __contain_history_enabled=1; fi; set +o history; case "$(HISTTIMEFORMAT= builtin history 1)" in *@TOKEN@*) builtin history -d -1 ;; esac`
 	guestResumeHistoryCommand  = `if [[ $__contain_history_enabled == 1 ]]; then set -o history; fi; unset __contain_history_enabled`
+	guestShutdownSetupCommand  = "bash /run/contain-guest/shutdown.sh"
 )
 
 //go:embed shutdown_guest.sh
 var guestShutdownScript string
 
 //go:embed shutdown_setup_guest.sh
-var guestShutdownSetupScript string
+var guestShutdownSetupScript []byte
 
 //go:embed command_guest.sh
 var guestCommandScript string
 
 // Tabs would trigger completion in the interactive console while transmitting the script.
 var (
-	guestShutdownSetupCommand = "bash -c " + shellQuote(strings.ReplaceAll(guestShutdownSetupScript, "\t", ""))
-	guestShutdownCommand      = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
-	guestCommandPrefix        = "exec bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
+	guestShutdownCommand = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
+	guestCommandPrefix   = "exec bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
 )
 
 func (c *console) suspendHistory(ctx context.Context) error {

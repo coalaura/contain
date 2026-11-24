@@ -9,11 +9,10 @@ import (
 	"github.com/coalaura/contain/internal/mount"
 )
 
-//go:embed mount_guest.sh
-var guestMountScript string
+const guestMountCommandPrefix = "bash /run/contain-mount.sh"
 
-// Script tabs are indentation; omit them so console input cannot trigger completion.
-var guestMountCommandPrefix = "bash -c " + shellQuote(strings.ReplaceAll(guestMountScript, "\t", "")) + " contain"
+//go:embed mount_guest.sh
+var guestMountScript []byte
 
 func mountGuestFilesystems(ctx context.Context, con *console, mounts []mount.Mount) error {
 	err := con.runShell(ctx, guestMountCommand(mounts))

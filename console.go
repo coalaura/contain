@@ -287,6 +287,12 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return fmt.Errorf("guest login must have root privileges: %w", err)
 	}
 
+	// The mount watcher outlives setup, so run its script from /run rather than the export.
+	err = con.runShell(ctx, guestHelperCommand)
+	if err != nil {
+		return fmt.Errorf("prepare guest helper export: %w", err)
+	}
+
 	err = con.runShell(ctx, guestShutdownSetupCommand)
 	if err != nil {
 		return fmt.Errorf("prepare guest shutdown: %w", err)

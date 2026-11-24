@@ -4,26 +4,25 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
 
-const guestResizeCommand = "/run/contain-resize"
+const (
+	guestResizeCommand  = "/run/contain-resize"
+	guestHelperCommand  = "mkdir -p /run/contain-guest && mount -t virtiofs -o ro contain_guest /run/contain-guest && cp /run/contain-guest/mount.sh /run/contain-mount.sh"
+	guestNetworkCommand = "bash /run/contain-guest/network.sh && umount /run/contain-guest && rmdir /run/contain-guest && export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/contain.crt"
+)
 
-type guestNetworkStep struct {
+type guestFile struct {
 	name    string
-	command string
+	content []byte
+	mode    fs.FileMode
 }
 
-var guestNetworkSteps = []guestNetworkStep{
-	{name: "check image tools", command: "command -v update-ca-certificates >/dev/null && command -v ip >/dev/null || { printf '%s\\n' 'Image requires ca-certificates and an IPv6-capable ip command (BusyBox or iproute2).'; false; }"},
-	{name: "mount helper export", command: "mkdir -p /run/contain-guest && mount -t virtiofs -o ro contain_guest /run/contain-guest"},
-	{name: "copy guest helper", command: "cp /run/contain-guest/resize /run/contain-resize && chmod 700 /run/contain-resize"},
-	{name: "install public CA", command: "mkdir -p /usr/local/share/ca-certificates && cp /run/contain-guest/contain.crt /usr/local/share/ca-certificates/contain.crt"},
-	{name: "unmount helper export", command: "umount /run/contain-guest && rmdir /run/contain-guest"},
-	{name: "update guest trust store", command: "update-ca-certificates && export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/contain.crt"},
-	{name: "start vsock/TUN helper", command: "/run/contain-resize --network"},
-}
+//go:embed network_guest.sh
+var guestNetworkScript []byte
 
 //go:generate go run ./guest/generate.go
 
@@ -31,13 +30,9 @@ var guestNetworkSteps = []guestNetworkStep{
 var guestResizeBinary []byte
 
 func initializeGuestNetwork(ctx context.Context, con *console) error {
-	for index := range guestNetworkSteps {
-		step := &guestNetworkSteps[index]
-
-		err := con.runShell(ctx, step.command)
-		if err != nil {
-			return fmt.Errorf("initialize guest networking: %s: %w", step.name, err)
-		}
+	err := con.runShell(ctx, guestNetworkCommand)
+	if err != nil {
+		return fmt.Errorf("initialize guest networking: %w", err)
 	}
 
 	return nil
@@ -53,18 +48,21 @@ func prepareGuestHelper(imageDirectory string, publicCA []byte) (string, func(),
 		os.RemoveAll(directory)
 	}
 
-	err = os.WriteFile(filepath.Join(directory, "resize"), guestResizeBinary, 0600)
-	if err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("write guest helper: %w", err)
+	files := [...]guestFile{
+		{name: "resize", content: guestResizeBinary, mode: 0600},
+		{name: "contain.crt", content: publicCA, mode: 0644},
+		{name: "network.sh", content: guestNetworkScript, mode: 0600},
+		{name: "mount.sh", content: guestMountScript, mode: 0600},
+		{name: "shutdown.sh", content: guestShutdownSetupScript, mode: 0600},
 	}
 
-	err = os.WriteFile(filepath.Join(directory, "contain.crt"), publicCA, 0644)
-	if err != nil {
-		cleanup()
+	for _, file := range files {
+		err = os.WriteFile(filepath.Join(directory, file.name), file.content, file.mode)
+		if err != nil {
+			cleanup()
 
-		return "", nil, fmt.Errorf("write guest CA certificate: %w", err)
+			return "", nil, fmt.Errorf("write guest helper file %s: %w", file.name, err)
+		}
 	}
 
 	return directory, cleanup, nil
