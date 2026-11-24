@@ -8,6 +8,14 @@ printf '\nInstalling common Alpine tools and dependencies...\n'
 apk add --no-cache python3 py3-pip py3-virtualenv py3-setuptools gcc g++ cmake curl git sudo ca-certificates tzdata coreutils findutils grep sed gawk diffutils patch file which less tree jq fd wget openssl gnupg tar gzip bzip2 xz zstd zip unzip lsof iputils bind-tools libstdc++ build-base linux-headers pkgconf perl shellcheck shfmt
 update-ca-certificates
 
+git config --system core.autocrlf input
+git config --system core.untrackedCache true
+git config --system diff.renames true
+git config --system merge.conflictStyle zdiff3
+git config --system push.autoSetupRemote true
+git config --system fetch.prune true
+git config --system branch.sort -authordate
+
 mkdir -p "$HOME" /etc/profile.d
 cat > /etc/profile.d/contain-tools.sh <<'PROFILE'
 export PATH="/usr/local/go/bin:/usr/local/zig:$HOME/.bun/bin:$PATH"
