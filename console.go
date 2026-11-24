@@ -295,10 +295,10 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 			return err
 		}
 
-		directory = "/workspace"
+		directory = mounts[0].GuestPath
 	}
 
-	err = con.runShell(ctx, "cd "+directory)
+	err = con.runShell(ctx, "cd "+shellQuote(directory))
 	if err != nil {
 		return fmt.Errorf("change guest directory to %s: %w", directory, err)
 	}

@@ -6,7 +6,7 @@
 
 Run tools and agents in an isolated Linux workspace powered by OpenVMM.
 
-`contain` boots a direct-boot Linux VM, exposes the current working directory at `/workspace` over virtio-fs and hands over an interactive terminal once the guest is ready. VM and boot output are captured to a per-session log in `~/.local/contain/logs/` so the host terminal stays clean until startup finishes.
+`contain` boots a direct-boot Linux VM, exposes the current working directory at `/workspace/{basename}` over virtio-fs and hands over an interactive terminal once the guest is ready. VM and boot output are captured to a per-session log in `~/.local/contain/logs/` so the host terminal stays clean until startup finishes.
 
 ## Requirements
 
@@ -65,11 +65,11 @@ snapshots:
     guest: ~/.config/example/preferences.json
 ```
 
-When `machine.command` is set, it runs in Bash inside `/workspace` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead; exiting with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`. Bash history is temporarily disabled during initialization so internal setup and shutdown commands stay out of history, then restored before handing over the terminal.
+When `machine.command` is set, it runs in Bash inside `/workspace/{basename}` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead; exiting with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`. Bash history is temporarily disabled during initialization so internal setup and shutdown commands stay out of history, then restored before handing over the terminal.
 
 ### Mounts & snapshots
 
-The current working directory is always mounted read/write at `/workspace`. Additional mounts require an explicit `guest` directory one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin` (for example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`). Replace older `name` + `target` entries with the full `guest` path. Setting `writable` on a `readonly: true` mount exports existing relative subdirectories read/write without making the whole mount writable.
+The current working directory is always mounted read/write at `/workspace/{basename}`, using the host directory's name (for example, `/workspace/contain`). Filesystem roots use `/workspace/root`. Additional mounts require an explicit `guest` directory one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin` (for example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`). Replace older `name` + `target` entries with the full `guest` path. Setting `writable` on a `readonly: true` mount exports existing relative subdirectories read/write without making the whole mount writable.
 
 Host paths expand `~` to the host user's home (including `~\.config\opencode` on Windows), including in `--mount`. Guest `~` expands to `/root`, the home in the supported Alpine root session; absolute equivalents work too and dry-run prints the resolved absolute guest paths.
 

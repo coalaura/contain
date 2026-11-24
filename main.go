@@ -313,7 +313,7 @@ func printDryRun(output io.Writer, diskPath string, mounts []mount.Mount, snapsh
 	directory := "/"
 
 	if len(mounts) > 0 {
-		directory = "/workspace"
+		directory = mounts[0].GuestPath
 	}
 
 	_, err = fmt.Fprintf(output, "\nDisk:\n  %s\n\nCommand (in %s):\n  %s\n", diskMode, directory, command)

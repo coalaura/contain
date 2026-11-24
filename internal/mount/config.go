@@ -16,6 +16,16 @@ type Config struct {
 }
 
 func Resolve(configured []Config, workspace string, additional ...Config) ([]Mount, error) {
+	workspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+
+	basename := filepath.Base(workspace)
+	if basename == string(filepath.Separator) {
+		basename = "root"
+	}
+
 	groups := [2][]Config{configured, additional}
 	count := len(configured) + len(additional) + 1
 
@@ -29,7 +39,7 @@ func Resolve(configured []Config, workspace string, additional ...Config) ([]Mou
 
 	mounts[0] = Mount{
 		Tag:       "workspace",
-		GuestPath: "/workspace",
+		GuestPath: "/workspace/" + basename,
 		HostPath:  workspace,
 	}
 
@@ -80,7 +90,7 @@ func Resolve(configured []Config, workspace string, additional ...Config) ([]Mou
 		}
 	}
 
-	err := Validate(mounts)
+	err = Validate(mounts)
 	if err != nil {
 		return nil, err
 	}

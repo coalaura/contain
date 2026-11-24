@@ -108,7 +108,7 @@ func (c *Config) Store() error {
 
 			"$.machine.processors": {yaml.HeadComment(" amount of processors to assign to the vm")},
 			"$.machine.memory":     {yaml.HeadComment(" amount of memory to assign to the vm (in GiB)")},
-			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace; shuts down the vm on exit (skipped with --shell)")},
+			"$.machine.command":    {yaml.HeadComment(" optional single-line shell command in /workspace/{basename}; shuts down the vm on exit (skipped with --shell)")},
 
 			"$.machine.login":          {yaml.HeadComment("")},
 			"$.machine.login.username": {yaml.HeadComment(" guest console login username")},

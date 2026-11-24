@@ -30,8 +30,8 @@ func Validate(mounts []Mount) error {
 		return nil
 	}
 
-	if mounts[0].Tag != "workspace" || mounts[0].GuestPath != "/workspace" {
-		return errors.New("first guest mount must use tag \"workspace\" at \"/workspace\"")
+	if mounts[0].Tag != "workspace" || path.Dir(mounts[0].GuestPath) != "/workspace" {
+		return errors.New("first guest mount must use tag \"workspace\" at a direct child of \"/workspace\"")
 	}
 
 	seenTags := make(map[string]bool, len(mounts))
