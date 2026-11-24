@@ -5,6 +5,7 @@ shutdown_guest() {
 
 	# Release the working directory before OpenRC unmounts host filesystems.
 	cd /
+	: > /run/contain-poweroff || :
 	poweroff
 }
 

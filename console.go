@@ -287,6 +287,11 @@ func InitializeGuest(ctx context.Context, con *console, login ConfigLogin, mount
 		return fmt.Errorf("guest login must have root privileges: %w", err)
 	}
 
+	err = con.runShell(ctx, guestShutdownSetupCommand)
+	if err != nil {
+		return fmt.Errorf("prepare guest shutdown: %w", err)
+	}
+
 	directory := "/"
 
 	if len(mounts) > 0 {

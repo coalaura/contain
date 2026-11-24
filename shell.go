@@ -21,13 +21,17 @@ const (
 //go:embed shutdown_guest.sh
 var guestShutdownScript string
 
+//go:embed shutdown_setup_guest.sh
+var guestShutdownSetupScript string
+
 //go:embed command_guest.sh
 var guestCommandScript string
 
 // Tabs would trigger completion in the interactive console while transmitting the script.
 var (
-	guestShutdownCommand = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
-	guestCommandPrefix   = "exec bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
+	guestShutdownSetupCommand = "bash -c " + shellQuote(strings.ReplaceAll(guestShutdownSetupScript, "\t", ""))
+	guestShutdownCommand      = "eval " + shellQuote(strings.ReplaceAll(guestShutdownScript, "\t", ""))
+	guestCommandPrefix        = "exec bash -c " + shellQuote(strings.ReplaceAll(guestShutdownScript+"\n"+guestCommandScript, "\t", "")) + " contain "
 )
 
 func (c *console) suspendHistory(ctx context.Context) error {
