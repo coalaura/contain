@@ -53,7 +53,7 @@ func CreateDisk(path string, size int64) error {
 
 	defer disk.Close()
 
-	err = os.Truncate(path, size)
+	err = sizeDisk(disk, size)
 	if err != nil {
 		return fmt.Errorf("size disk: %w", err)
 	}
