@@ -384,6 +384,8 @@ func machineArgs(machine *MachineConfig, address, cmdline string, temporary bool
 
 	baseArgs := []string{
 		"--hv",
+		"--smbios", "type=0,vendor=OEM,version=1.0,date=01/01/2024,release=1.0",
+		"--smbios", "type=1,manufacturer=System manufacturer,product=System Product Name,version=1.0,serial=Default string,sku=Default string,family=Desktop",
 		"--processors", strconv.Itoa(machine.Processors),
 		"--memory", fmt.Sprintf("%dG", machine.Memory),
 		"--kernel", machine.kernel,
