@@ -137,7 +137,12 @@ func main() {
 	if errors.Is(err, context.Canceled) {
 		log.Infoln("Session canceled.")
 
-		return
+		os.Exit(1)
+	}
+
+	guestExit, ok := errors.AsType[guestExitError](err)
+	if ok {
+		os.Exit(int(guestExit))
 	}
 
 	log.MustExit(err)

@@ -248,7 +248,9 @@ func runOpenVMM(ctx context.Context, output, networkOutput io.Writer, mounts []m
 		defer resize.Close()
 	}
 
-	err = con.startCommand(consoleCtx, command)
+	// A fast command may power off before its readiness marker is read. Keep
+	// draining buffered console output even after the OpenVMM process exits.
+	err = con.startCommand(ctx, command)
 	if err != nil {
 		return startupError(ctx, exited, &processErr, err)
 	}
@@ -257,7 +259,11 @@ func runOpenVMM(ctx context.Context, output, networkOutput io.Writer, mounts []m
 
 	log.Successf("Guest ready in %s.\n", took)
 
-	relayErr := relayTerminal(ctx, con, exited, resize)
+	status := newGuestStatusWriter(os.Stdout, con.exitMarker)
+
+	relayErr := relayTerminal(ctx, con, exited, resize, status)
+	relayErr = errors.Join(relayErr, status.Flush())
+
 	con.Close()
 
 	if resize != nil {
@@ -273,11 +279,11 @@ func runOpenVMM(ctx context.Context, output, networkOutput io.Writer, mounts []m
 	case <-exited:
 		<-watchNetwork
 
-		return errors.Join(relayErr, networkErr, processErr)
+		return guestSessionResult(status.status, relayErr, networkErr, processErr)
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		return relayErr
+		return errors.Join(relayErr, errors.New("guest console disconnected without VM shutdown"))
 	}
 }
 

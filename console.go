@@ -22,8 +22,9 @@ const (
 )
 
 type console struct {
-	conn   consoleConn
-	reader *bufio.Reader
+	conn       consoleConn
+	reader     *bufio.Reader
+	exitMarker string
 }
 
 type consoleConn interface {

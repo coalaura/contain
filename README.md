@@ -66,7 +66,7 @@ snapshots:
     guest: ~/.config/example/preferences.json
 ```
 
-When `machine.command` is set, it runs in Bash inside `/workspace/{basename}` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead; exiting with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`. Bash history is temporarily disabled during initialization so internal setup and shutdown commands stay out of history, then restored before handing over the terminal.
+When `machine.command` is set, it runs in Bash inside `/workspace/{basename}` and shuts down the guest when it exits. Leave it empty to start an interactive shell instead; exiting with `exit` or Ctrl+D also shuts down the guest, including when using `--shell`. After a clean shutdown, `contain` returns the guest command or shell's exit status, including Bash's `128 + signal` status for terminated commands. Startup, transport and shutdown failures, missing guest status reports and canceled sessions return a nonzero status. Bash history is temporarily disabled during initialization so internal setup and shutdown commands stay out of history, then restored before handing over the terminal.
 
 ### Mounts & snapshots
 

@@ -3,18 +3,18 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"time"
-	"fmt"
 
 	"github.com/coalaura/contain/internal/terminal"
 
 	"golang.org/x/term"
 )
 
-func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, resize *terminal.Resize) error {
+func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, resize *terminal.Resize, output io.Writer) error {
 	fd := int(os.Stdin.Fd())
 
 	if term.IsTerminal(fd) {
@@ -61,7 +61,7 @@ func relayTerminal(ctx context.Context, con *console, exited <-chan struct{}, re
 		}
 	}()
 
-	_, outputErr := io.Copy(os.Stdout, con.Reader())
+	_, outputErr := io.Copy(output, con.Reader())
 
 	stopInput()
 	con.Close()

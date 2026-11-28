@@ -1,4 +1,5 @@
-trap 'exit' HUP INT TERM
+trap 'exit 130' INT
+trap 'exit 143' TERM
 printf '%s%s_READY:0\n' "$2" "$3"
 
 # Isolate the command so exit, exec and shell errors cannot bypass shutdown.
