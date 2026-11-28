@@ -194,6 +194,12 @@ func inspectNetworkPacket(packet []byte, policy *networkPolicy) (networkPacket, 
 		return parsed, networkPacketError("zero TCP or UDP port")
 	}
 
+	// Only netstack connections opened by published ports may receive these replies.
+	// The TCP/UDP fallback handlers reject this address, so it cannot authorize egress.
+	if parsed.destination == publishAddress && policy.mode != "closed" && (parsed.protocol == 6 || parsed.protocol == 17) {
+		return parsed, nil
+	}
+
 	if parsed.protocol == 17 && parsed.port == 443 && policy.mode != "open" {
 		return parsed, errNetworkDenied
 	}

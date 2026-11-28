@@ -122,6 +122,7 @@ func (c *Config) Store() error {
 			"$.machine.network.credentials":    {yaml.HeadComment(" none (or empty), or opencode to inject host credentials in isolated mode")},
 			"$.machine.network.allow_loopback": {yaml.HeadComment(" allow host addresses, including loopback; still subject to network rules")},
 			"$.machine.network.allow_lan":      {yaml.HeadComment(" allow private and directly connected networks; still subject to network rules")},
+			"$.machine.network.ports":          {yaml.HeadComment(" published guest ports: '[HOST_IP:]HOST:GUEST[/tcp|udp]'; default host 127.0.0.1, protocol tcp")},
 
 			"$.machine.dns":           {yaml.HeadComment("")},
 			"$.machine.dns.primary":   {yaml.HeadComment(" host resolver upstream: IP:port, domain:port or https://... DoH URL")},

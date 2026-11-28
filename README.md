@@ -44,6 +44,7 @@ machine:
     credentials: none # none (or empty) | opencode
     allow_loopback: false # access to the host itself
     allow_lan: false # access to private and directly connected networks
+    ports: [] # e.g. ["8080:80", "5353:53/udp"]
   dns:
     primary: 1.1.1.1:53
     secondary: "[2606:4700:4700::1111]:53"
@@ -69,7 +70,7 @@ When `machine.command` is set, it runs in Bash inside `/workspace/{basename}` an
 
 ### Mounts & snapshots
 
-The current working directory is always mounted read/write at `/workspace/{basename}`, using the host directory's name (for example, `/workspace/contain`). Filesystem roots use `/workspace/root`. Additional mounts require an explicit `guest` directory one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin` (for example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`). Replace older `name` + `target` entries with the full `guest` path. Setting `writable` on a `readonly: true` mount exports existing relative subdirectories read/write without making the whole mount writable.
+The current working directory is mounted read/write by default at `/workspace/{basename}`, using the host directory's name (for example, `/workspace/contain`). Use `--readonly` to export and mount the workspace read-only; additional mounts keep their configured access. `--plain` skips the workspace entirely. Filesystem roots use `/workspace/root`. Additional mounts require an explicit `guest` directory one level below `/projects`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state` or `~/.local/bin` (for example, `guest: ~/.local/share/opencode` mounts directly at `/root/.local/share/opencode`). Replace older `name` + `target` entries with the full `guest` path. Setting `writable` on a `readonly: true` mount exports existing relative subdirectories read/write without making the whole mount writable.
 
 Host paths expand `~` to the host user's home (including `~\.config\opencode` on Windows), including in `--mount`. Guest `~` expands to `/root`, the home in the supported Alpine root session; absolute equivalents work too and dry-run prints the resolved absolute guest paths.
 
@@ -115,9 +116,24 @@ Sessions default to `isolated` mode with `default: deny`. Rules accept IPv4/IPv6
 - `allow_loopback: false` blocks loopback addresses and all addresses assigned to the host's interfaces (including LAN and public addresses). Set it to `true` to permit host destinations, subject to the mode and IP rules. `allow_lan` alone never grants host access.
 - `allow_lan: false` blocks other destinations in private IPv4/IPv6 ranges, IPv4 link-local, shared address space (`100.64.0.0/10`) and directly connected interface subnets (including public and VPN subnets). Set it to `true` to permit them, subject to the mode and IP rules. Interface discovery fails closed and refreshes before socket creation, ICMP sends and each outbound UDP datagram.
 
-There is no inbound port forwarding. Outbound traffic uses the host's source address and routing, so allowed loopback or private targets can reach host or LAN services; treat any allowed destination (and any proxy/tunnel on it) as a capability.
+Outbound traffic uses the host's source address and routing, so allowed loopback or private targets can reach host or LAN services; treat any allowed destination (and any proxy/tunnel on it) as a capability.
 
 Only TCP, UDP and ICMP echo are supported; unknown protocols are rejected even in `open` mode. Fragmented packets, IPv4 options, IPv6 extension headers, multicast, unspecified destinations, scoped IPv6 link-local destinations, ICMP errors and path-MTU discovery are unsupported. Linux echo requires unprivileged ping sockets (`ping_group_range`) and fails rather than elevating privileges; Windows uses the native IP Helper echo API.
+
+#### Published ports
+
+Publish guest services on the host with repeatable `--publish HOST:GUEST` (alias `--forward`) or permanent entries under `machine.network.ports`. CLI entries are added to the configured list for that session:
+
+```yaml
+ports: # under machine.network
+  - "8080:80"
+  - "5353:53/udp"
+  - "[::1]:8443:443"
+```
+
+The syntax is `[HOST_IP:]HOST:GUEST[/tcp|udp]`. TCP and host address `127.0.0.1` are the defaults; specify `0.0.0.0` or `[::]` to listen on all IPv4 or IPv6 host interfaces. Ports must be 1-65535; ranges and automatic host-port allocation are unsupported. Duplicate or overlapping host bindings for the same protocol are rejected, and an unavailable host port fails startup before the VM starts. Dry-run validates and lists mappings without binding sockets.
+
+Guest services must listen on `0.0.0.0` or `192.0.2.2`, rather than guest loopback. Connections appear to the guest from `192.0.2.3`; the original client's address is not preserved. Publishing works in `isolated` and `open` modes, including with `--plain`; `closed` rejects published ports. Replies on published connections are allowed independently of outbound rules, without granting guest-initiated host or LAN access. At most 128 mappings are supported, and active TCP connections and UDP client sessions share the gateway's 128-flow budget.
 
 #### DNS & IP grants
 
@@ -201,8 +217,10 @@ contain remove NAME
 | `--plain` | Start an interactive shell at `/`, skipping all workspace, configured and CLI mounts, snapshots and startup commands. Takes precedence over `--shell`, `--run` and `--mount`; can be combined with `--temporary` and `--dry-run`. |
 | `--run COMMAND` | Run a single-line shell command instead of the configured command. Cannot be combined with `--shell`. |
 | `--mount HOST[:NAME][:ro\|rw]` | Add a session-only mount under `/projects/<name>`. Repeatable; defaults to read/write and infers `NAME` from the host directory basename. |
+| `--readonly` | Mount the workspace read-only instead of read/write. |
+| `--publish [HOST_IP:]HOST:GUEST[/tcp\|udp]`, `--forward ...` | Publish a guest service on the host. Repeatable; adds to configured ports. Defaults to localhost and TCP. |
 | `--temporary`, `--temp` | Discard guest disk changes on exit using an OpenVMM memory-backed diff layer. `disk.raw` stays untouched; writable host mounts still persist. |
-| `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, whether they hide existing guest files, snapshots, disk mode and command without starting the VM. |
+| `--dry-run`, `--dry` | Validate config and flags, then print the resolved mounts, whether they hide existing guest files, snapshots, published ports, disk mode and command without starting the VM. |
 | `--help` | Show command-specific help. |
 
 Dry-run inspects `disk.raw` read-only as an offline preview (it does not account for paths created or changed during boot and does not change mounting behavior). In the `OVERRIDES FILES` column:

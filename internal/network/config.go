@@ -18,6 +18,7 @@ type Config struct {
 	Credentials   string   `yaml:"credentials,omitempty"`
 	AllowLoopback bool     `yaml:"allow_loopback"`
 	AllowLAN      bool     `yaml:"allow_lan"`
+	Ports         []string `yaml:"ports"`
 }
 
 type networkPolicy struct {
@@ -98,7 +99,7 @@ func (config Config) InspectHTTPS() bool {
 }
 
 func DefaultConfig() Config {
-	return Config{Mode: "isolated", Default: "deny", Allow: []string{}, Deny: []string{}, Credentials: "none"}
+	return Config{Mode: "isolated", Default: "deny", Allow: []string{}, Deny: []string{}, Credentials: "none", Ports: []string{}}
 }
 
 func compileNetworkPolicy(config Config) (*networkPolicy, error) {
@@ -112,6 +113,15 @@ func compileNetworkPolicy(config Config) (*networkPolicy, error) {
 
 	if config.Credentials != "" && config.Credentials != "none" && config.Credentials != "opencode" {
 		return nil, errors.New("machine.network.credentials must be none, opencode or empty")
+	}
+
+	_, err := ResolvePorts(config.Ports)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.Mode == "closed" && len(config.Ports) != 0 {
+		return nil, errors.New("published ports require machine.network.mode open or isolated")
 	}
 
 	allow, allowDomains, err := networkRules(config.Allow)

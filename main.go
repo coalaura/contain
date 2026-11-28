@@ -12,6 +12,7 @@ import (
 
 	imagecreate "github.com/coalaura/contain/internal/create"
 	"github.com/coalaura/contain/internal/mount"
+	"github.com/coalaura/contain/internal/network"
 	"github.com/coalaura/contain/internal/snapshot"
 	"github.com/coalaura/plain/minimal"
 	"github.com/urfave/cli/v3"
@@ -71,6 +72,15 @@ func main() {
 					},
 					mountFlag,
 					&cli.BoolFlag{
+						Name:  "readonly",
+						Usage: "Mount the workspace read-only",
+					},
+					&cli.StringSliceFlag{
+						Name:    "publish",
+						Aliases: []string{"forward"},
+						Usage:   "Publish a guest port: [HOST_IP:]HOST:GUEST[/tcp|udp] (repeatable; host defaults to 127.0.0.1)",
+					},
+					&cli.BoolFlag{
 						Name:    "temporary",
 						Aliases: []string{"t", "temp"},
 						Usage:   "Discard guest disk changes on exit using a memory-backed layer",
@@ -78,7 +88,7 @@ func main() {
 					&cli.BoolFlag{
 						Name:    "dry-run",
 						Aliases: []string{"d", "dry"},
-						Usage:   "Preview mounts and hidden guest files, snapshots, disk mode and command without starting the VM",
+						Usage:   "Preview mounts and hidden guest files, snapshots, ports, disk mode and command without starting the VM",
 					},
 				},
 				Action: run,
@@ -164,6 +174,18 @@ func run(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
+	config.Machine.Network.Ports = append(config.Machine.Network.Ports, command.StringSlice("publish")...)
+
+	ports, err := network.ResolvePorts(config.Machine.Network.Ports)
+	if err != nil {
+		return err
+	}
+
+	err = config.Machine.Network.Validate()
+	if err != nil {
+		return err
+	}
+
 	var (
 		mounts         []mount.Mount
 		snapshots      []snapshot.Snapshot
@@ -190,6 +212,8 @@ func run(ctx context.Context, command *cli.Command) error {
 		if err != nil {
 			return err
 		}
+
+		mounts[0].Readonly = command.Bool("readonly")
 
 		snapshots, err = snapshot.Resolve(config.Snapshots, mounts)
 		if err != nil {
@@ -218,7 +242,7 @@ func run(ctx context.Context, command *cli.Command) error {
 	}
 
 	if command.Bool("dry-run") {
-		return printDryRun(command.Writer, config.Machine.disk, mounts, snapshots, startupCommand, temporary)
+		return printDryRun(command.Writer, config.Machine.disk, mounts, snapshots, ports, startupCommand, temporary)
 	}
 
 	err = RunOpenVMM(ctx, mounts, snapshots, startupCommand, temporary)
@@ -232,7 +256,7 @@ func run(ctx context.Context, command *cli.Command) error {
 	return nil
 }
 
-func printDryRun(output io.Writer, diskPath string, mounts []mount.Mount, snapshots []snapshot.Snapshot, command string, temporary bool) error {
+func printDryRun(output io.Writer, diskPath string, mounts []mount.Mount, snapshots []snapshot.Snapshot, ports []network.Port, command string, temporary bool) error {
 	inspections := mount.InspectTargets(diskPath, mounts)
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 
@@ -298,6 +322,30 @@ func printDryRun(output io.Writer, diskPath string, mounts []mount.Mount, snapsh
 		if err != nil {
 			return err
 		}
+	}
+
+	_, err = fmt.Fprintln(writer, "\nPublished ports:\n  HOST\tGUEST\tPROTOCOL")
+	if err != nil {
+		return err
+	}
+
+	if len(ports) == 0 {
+		_, err = fmt.Fprintln(writer, "  (none)")
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, port := range ports {
+		_, err = fmt.Fprintf(writer, "  %s\t%d\t%s\n", port.Host, port.Guest, port.Protocol)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = writer.Flush()
+	if err != nil {
+		return err
 	}
 
 	if command == "" {

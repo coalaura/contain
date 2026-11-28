@@ -51,6 +51,7 @@ type Gateway struct {
 	base         string
 	directory    string
 	listener     net.Listener
+	published    []io.Closer
 	stack        *stack.Stack
 	link         *channel.Endpoint
 	ready        chan struct{}
@@ -185,6 +186,10 @@ func (gateway *Gateway) Close() error {
 	gateway.closed = true
 	gateway.cancel()
 	gateway.listener.Close()
+
+	for _, listener := range gateway.published {
+		listener.Close()
+	}
 
 	for connection := range gateway.connections {
 		connection.Close()
@@ -323,7 +328,7 @@ func (gateway *Gateway) forwardTCP(request *tcp.ForwarderRequest) {
 		return
 	}
 
-	if !gateway.policy.permits(destination.Addr()) {
+	if destination.Addr() == publishAddress || !gateway.policy.permits(destination.Addr()) {
 		gateway.logConnection("TCP", destination, errNetworkDenied)
 
 		request.Complete(true)
@@ -414,7 +419,7 @@ func (gateway *Gateway) retireTCP(endpoint tcpip.Endpoint) {
 func (gateway *Gateway) forwardUDP(request *udp.ForwarderRequest) bool {
 	destination := networkEndpointDestination(request.ID())
 
-	if !gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open" {
+	if destination.Addr() == publishAddress || !gateway.policy.permits(destination.Addr()) || destination.Port() == 443 && gateway.policy.mode != "open" {
 		gateway.logConnection("UDP", destination, errNetworkDenied)
 
 		return false
@@ -564,6 +569,10 @@ func (gateway *Gateway) disconnect() {
 	defer gateway.mutex.Unlock()
 
 	gateway.cancel()
+
+	for _, listener := range gateway.published {
+		listener.Close()
+	}
 
 	for connection := range gateway.connections {
 		connection.Close()
@@ -746,6 +755,13 @@ func Start(ctx context.Context, config Config, dns DNSConfig, ca *Authority, cre
 
 	gateway.logger.record(networkEvent{protocol: "GATEWAY", action: "START", reason: config.Mode})
 
+	err = gateway.publishPorts(config.Ports)
+	if err != nil {
+		gateway.Close()
+
+		return nil, err
+	}
+
 	gateway.workers.Add(1)
 	go gateway.serve()
 
@@ -764,6 +780,16 @@ func configureNetworkStack(gateway *Gateway) tcpip.Error {
 	}
 
 	stackErr = gateway.stack.SetSpoofing(1, true)
+	if stackErr != nil {
+		return stackErr
+	}
+
+	address := tcpip.ProtocolAddress{
+		Protocol:          ipv4.ProtocolNumber,
+		AddressWithPrefix: tcpip.AddrFrom4(publishAddress.As4()).WithPrefix(),
+	}
+
+	stackErr = gateway.stack.AddProtocolAddress(1, address, stack.AddressProperties{})
 	if stackErr != nil {
 		return stackErr
 	}
